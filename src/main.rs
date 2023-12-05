@@ -117,6 +117,162 @@ fn main() -> Result<(), Error> {
             .unwrap(),
     );
 
+    let screen_shader = std::fs::read_to_string("shaders/screen_shader.wgsl").unwrap();
+    let raytracer_kernel = std::fs::read_to_string("shaders/raytracer_kernel.wgsl").unwrap();
+    // create raytracing shader
+    let screen_shader = device.create_shader_module(ShaderModuleDescriptor {
+        label: Some("screen shader"),
+        source: ShaderSource::Wgsl(screen_shader.into()),
+    });
+    let raytracer_kernel = device.create_shader_module(ShaderModuleDescriptor {
+        label: Some("screen shader"),
+        source: ShaderSource::Wgsl(raytracer_kernel.into()),
+    });
+
+    let color_buffer: Texture = device.create_texture(&TextureDescriptor {
+        label: None,
+        size: Extent3d {
+            width: window_width,
+            height: window_height,
+            depth_or_array_layers: 1,
+        },
+        format: TextureFormat::Rgba8Unorm,
+        usage: TextureUsages::COPY_DST
+            | TextureUsages::COPY_SRC
+            | TextureUsages::TEXTURE_BINDING
+            | TextureUsages::STORAGE_BINDING,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: TextureDimension::D2,
+        view_formats: &[],
+    });
+    let color_buffer_view: TextureView = color_buffer.create_view(&TextureViewDescriptor {
+        ..Default::default()
+    });
+    let sampler: Sampler = device.create_sampler(&SamplerDescriptor {
+        label: Some("color buffer sampler"),
+        address_mode_u: AddressMode::Repeat,
+        address_mode_v: AddressMode::Repeat,
+        mag_filter: FilterMode::Nearest,
+        min_filter: FilterMode::Nearest,
+        mipmap_filter: FilterMode::Nearest,
+        ..Default::default()
+    });
+    let ray_tracing_bind_group_layout =
+        device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("raytracing bind group"),
+            entries: &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::StorageTexture {
+                    access: StorageTextureAccess::WriteOnly,
+                    format: TextureFormat::Rgba8Unorm,
+                    view_dimension: TextureViewDimension::D2,
+                },
+                count: None,
+            }],
+        });
+    // what resources the raytracing pipeline will be using (just color buffer)
+    let ray_tracing_bind_group: BindGroup = device.create_bind_group(&BindGroupDescriptor {
+        label: None,
+        layout: &ray_tracing_bind_group_layout,
+        entries: &[BindGroupEntry {
+            binding: 0,
+            resource: BindingResource::TextureView(&color_buffer_view),
+        }],
+    });
+    let ray_tracing_pipeline_layout: PipelineLayout =
+        device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            bind_group_layouts: &[&ray_tracing_bind_group_layout],
+            ..Default::default()
+        });
+    let ray_tracing_pipeline: ComputePipeline =
+        device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("raytracing compute pipeline"),
+            layout: Some(&ray_tracing_pipeline_layout),
+            module: &raytracer_kernel,
+            entry_point: "main",
+        });
+
+    // hi
+    let screen_shader_bind_group_layout =
+        device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("screen shader bind group"),
+            entries: &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Sampler(SamplerBindingType::NonFiltering),
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: false },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+            ],
+        });
+    // what resources the raytracing pipeline will be using (just color buffer)
+    let screen_shader_bind_group: BindGroup = device.create_bind_group(&BindGroupDescriptor {
+        label: None,
+        layout: &screen_shader_bind_group_layout,
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::Sampler(&sampler),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: BindingResource::TextureView(&color_buffer_view),
+            },
+        ],
+    });
+
+    let screen_shader_pipeline_layout: PipelineLayout =
+        device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            bind_group_layouts: &[&screen_shader_bind_group_layout],
+            ..Default::default()
+        });
+
+    let screen_shader_pipeline: RenderPipeline =
+        device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: None,
+            layout: Some(&screen_shader_pipeline_layout),
+            vertex: VertexState {
+                module: &screen_shader,
+                entry_point: "vert_main",
+                buffers: &[],
+            },
+            primitive: PrimitiveState {
+                // could use triangle strip here, but in anticipation
+                // of future .obj files, holding off on that
+                topology: PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: MultisampleState::default(),
+            fragment: Some(FragmentState {
+                module: &screen_shader,
+                entry_point: "frag_main",
+                targets: &[Some(ColorTargetState {
+                    format: TextureFormat::Bgra8UnormSrgb,
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
+            }),
+            multiview: None,
+        });
+
     // let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
     //     label: None,
     //     bind_group_layouts: &[],
@@ -178,28 +334,50 @@ fn main() -> Result<(), Error> {
                         ..Default::default()
                     });
                 {
-                    let render_pass_descriptor = RenderPassDescriptor {
-                        label: None,
-                        color_attachments: &[Some(RenderPassColorAttachment {
-                            view: &surface_texture_view,
-                            resolve_target: None,
-                            ops: Operations {
-                                load: LoadOp::Clear(Color {
-                                    r: 0.1,
-                                    g: 0.1,
-                                    b: 0.1,
-                                    a: 1.,
-                                }),
-                                store: StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    };
-
-                    // Application update code.
-                    let render_pass = command_encoder.begin_render_pass(&render_pass_descriptor);
+                    {
+                        // Application update code.
+                        let mut ray_tracing_compute_pass =
+                            command_encoder.begin_compute_pass(&ComputePassDescriptor {
+                                ..Default::default()
+                            }
+                        );
+                        ray_tracing_compute_pass.set_bind_group(0, &ray_tracing_bind_group, &[]);
+                        ray_tracing_compute_pass.set_pipeline(&ray_tracing_pipeline);
+                        // the globalinvocation id is a vec3 that corresponds to current width and height
+                        // TODO: how do we dispatch more than 1 ray per pixel (and randomly too)
+                        // second, how do we update hit records for a sphere in the compute shader?
+                        ray_tracing_compute_pass.dispatch_workgroups(
+                            window_width,
+                            window_height,
+                            1,
+                        );
+                        // i think drop auto calls compute pass end
+                    }
+                    {
+                        let render_pass_descriptor = RenderPassDescriptor {
+                            label: None,
+                            color_attachments: &[Some(RenderPassColorAttachment {
+                                view: &surface_texture_view,
+                                resolve_target: None,
+                                ops: Operations {
+                                    load: LoadOp::Clear(Color {
+                                        r: 0.1,
+                                        g: 0.1,
+                                        b: 0.1,
+                                        a: 1.,
+                                    }),
+                                    store: StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: None,
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                        };
+                        let mut screen_shader_render_pass = command_encoder.begin_render_pass(&render_pass_descriptor);
+                        screen_shader_render_pass.set_bind_group(0, &screen_shader_bind_group, &[]);
+                        screen_shader_render_pass.set_pipeline(&screen_shader_pipeline);
+                        screen_shader_render_pass.draw(0..6, 0..1);
+                    }
                 }
 
                 queue.submit(std::iter::once(command_encoder.finish()));
