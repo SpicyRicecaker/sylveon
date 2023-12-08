@@ -6,4 +6,4 @@ WGPU rust documentation (https://docs.rs/wgpu/latest/wgpu/struct.Features.html)
 
 Have no idea how to stream object/scene data into WGSL. But we need to do this if we're going to procedurally generate meshes. Also need to figure out how to do ray triangle intersections.
 
-Good program to show displacements (https://webgpufundamentals.org/webgpu/lessons/resources/wgsl-offset-computer.html)
+Good program to show displacements (https://webgpufundamentals.org/webgpu/lessons/resources/wgsl-offset-computer.html), Section of Webgpu Spec that says this: (https://www.w3.org/TR/WGSL/#alignment-and-size).

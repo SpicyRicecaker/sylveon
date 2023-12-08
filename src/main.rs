@@ -36,9 +36,9 @@ struct Camera {
     direction: Vec3,
     aspect_ratio: f32,
     normal: Vec3,
-    dummy1: f32,
+    _1: f32,
     right: Vec3,
-    dummy2: f32,
+    _2: f32,
 }
 
 #[derive(Debug, Default)]
