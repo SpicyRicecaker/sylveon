@@ -1,4 +1,4 @@
-use futures::executor;
+use futures::executor::{self, block_on};
 use hal::auxil::db;
 use std::{
     borrow::BorrowMut,
@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::Error;
-use glam::{Vec2, Vec3};
+use glam::{UVec2, Vec2, Vec3};
 use wgpu::*;
 use winit::{
     dpi::PhysicalSize,
@@ -27,14 +27,18 @@ struct Sphere {
     radius: f32,
 }
 
-#[derive(Debug, Default)]
+#[repr(C)]
+#[derive(bytemuck::NoUninit, Debug, Clone, Copy, Default)]
+
 struct Camera {
     eye: Vec3,
-    direction: Vec3,
-    normal: Vec3,
-    right: Vec3,
-    // distance from camera eye to viewport
     focal_length: f32,
+    direction: Vec3,
+    aspect_ratio: f32,
+    normal: Vec3,
+    dummy1: f32,
+    right: Vec3,
+    dummy2: f32,
 }
 
 #[derive(Debug, Default)]
@@ -51,9 +55,7 @@ struct Scene {
 #[derive(Debug, Default)]
 struct Game {
     camera: Camera,
-    window_width: u32,
-    window_height: u32,
-    aspect_ratio: u32,
+    window_size: UVec2,
     camera_mode: CameraMode,
     velocity: Vec3,
     keys: Keys,
@@ -62,10 +64,9 @@ struct Game {
 
 impl Game {
     fn new(camera: Camera) -> Self {
-        let window_width: u32 = 400;
+        let width: u32 = 400;
         // aspect ratio
-        let aspect_ratio: f32 = 16. / 9.;
-        let window_height: u32 = ((1. / aspect_ratio) * window_width as f32) as u32;
+        let height: u32 = ((1. / camera.aspect_ratio) * width as f32) as u32;
 
         Self {
             camera,
@@ -77,8 +78,7 @@ impl Game {
                     radius: 0.5,
                 }],
             },
-            window_width,
-            window_height,
+            window_size: UVec2::new(width, height),
             ..Default::default()
         }
     }
@@ -88,26 +88,26 @@ impl Game {
     fn handle_key_event(&mut self, e: &KeyEvent) {
         match e.key_without_modifiers().as_ref() {
             Key::Named(NamedKey::Shift) => match e.state {
-                ElementState::Pressed => {
+                ElementState::Released => {
                     self.keys.held_keys.remove("shift");
                 }
-                ElementState::Released => {
+                ElementState::Pressed => {
                     self.keys.held_keys.insert("shift".into());
                 }
             },
             Key::Named(NamedKey::Space) => match e.state {
-                ElementState::Pressed => {
+                ElementState::Released => {
                     self.keys.held_keys.remove("space");
                 }
-                ElementState::Released => {
+                ElementState::Pressed => {
                     self.keys.held_keys.insert("space".into());
                 }
             },
             Key::Character(c) => match e.state {
-                ElementState::Pressed => {
+                ElementState::Released => {
                     self.keys.held_keys.remove(c);
                 }
-                ElementState::Released => {
+                ElementState::Pressed => {
                     self.keys.held_keys.insert(c.into());
                 }
             },
@@ -120,7 +120,7 @@ impl Game {
             if self.camera_mode == CameraMode::Minecraft {
                 let mut v = Vec3::new(0., 0., 0.);
 
-                let v_max: f32 = 0.1;
+                let v_max: f32 = 0.01;
                 if self.keys.held_keys.contains("w") {
                     v += v_max * self.camera.direction;
                 }
@@ -131,7 +131,7 @@ impl Game {
                     v -= v_max * self.camera.direction;
                 }
                 if self.keys.held_keys.contains("d") {
-                    v -= v_max * self.camera.right;
+                    v += v_max * self.camera.right;
                 }
                 if self.keys.held_keys.contains("space") {
                     v += v_max * Vec3::new(0., 1., 0.);
@@ -139,7 +139,12 @@ impl Game {
                 if self.keys.held_keys.contains("shift") {
                     v += v_max * Vec3::new(0., -1., 0.);
                 }
+
+                self.velocity = v;
             }
+            dbg!(self.camera.eye);
+
+            self.camera.eye += self.velocity;
         }
     }
 }
@@ -172,6 +177,8 @@ fn main() -> Result<(), Error> {
         normal: Vec3::new(0., 1., 0.),
         right: Vec3::new(1., 0., 0.),
         focal_length: 1.,
+        aspect_ratio: 16. / 9.,
+        ..Default::default()
     };
 
     let mut game = Game::new(camera);
@@ -183,7 +190,7 @@ fn main() -> Result<(), Error> {
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let window = WindowBuilder::new()
-        .with_inner_size(PhysicalSize::new(game.window_width, game.window_height))
+        .with_inner_size(PhysicalSize::new(game.window_size.x, game.window_size.y))
         .build(&event_loop)
         .unwrap();
 
@@ -282,7 +289,7 @@ fn main() -> Result<(), Error> {
     surface.configure(
         &device,
         &surface
-            .get_default_config(&adapter, game.window_width, game.window_height)
+            .get_default_config(&adapter, game.window_size.x, game.window_size.y)
             .unwrap(),
     );
 
@@ -298,11 +305,28 @@ fn main() -> Result<(), Error> {
         source: ShaderSource::Wgsl(raytracer_kernel.into()),
     });
 
+    let cam_uniform: Buffer = device.create_buffer(&BufferDescriptor {
+        label: Some("cam uniform"),
+        size: std::mem::size_of::<Camera>() as wgpu::BufferAddress,
+        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::MAP_WRITE,
+        mapped_at_creation: false,
+    });
+
+    let window_uniform: Buffer = device.create_buffer(&BufferDescriptor {
+        label: Some("window size uniform"),
+        size: std::mem::size_of::<UVec2>() as wgpu::BufferAddress,
+        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::MAP_WRITE,
+        mapped_at_creation: false,
+    });
+
+    dbg!(std::mem::size_of::<Camera>() as wgpu::BufferAddress);
+    dbg!(std::mem::size_of::<UVec2>() as wgpu::BufferAddress);
+
     let color_buffer: Texture = device.create_texture(&TextureDescriptor {
         label: None,
         size: Extent3d {
-            width: game.window_width,
-            height: game.window_height,
+            width: game.window_size.x,
+            height: game.window_size.y,
             depth_or_array_layers: 1,
         },
         format: TextureFormat::Rgba8Unorm,
@@ -330,25 +354,57 @@ fn main() -> Result<(), Error> {
     let ray_tracing_bind_group_layout =
         device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("raytracing bind group"),
-            entries: &[BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::StorageTexture {
-                    access: StorageTextureAccess::WriteOnly,
-                    format: TextureFormat::Rgba8Unorm,
-                    view_dimension: TextureViewDimension::D2,
+            entries: &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::StorageTexture {
+                        access: StorageTextureAccess::WriteOnly,
+                        format: TextureFormat::Rgba8Unorm,
+                        view_dimension: TextureViewDimension::D2,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
         });
     // what resources the raytracing pipeline will be using (just color buffer)
     let ray_tracing_bind_group: BindGroup = device.create_bind_group(&BindGroupDescriptor {
         label: None,
         layout: &ray_tracing_bind_group_layout,
-        entries: &[BindGroupEntry {
-            binding: 0,
-            resource: BindingResource::TextureView(&color_buffer_view),
-        }],
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::TextureView(&color_buffer_view),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: BindingResource::Buffer(cam_uniform.as_entire_buffer_binding()),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: BindingResource::Buffer(window_uniform.as_entire_buffer_binding()),
+            },
+        ],
     });
     let ray_tracing_pipeline_layout: PipelineLayout =
         device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -410,7 +466,7 @@ fn main() -> Result<(), Error> {
 
     let screen_shader_pipeline: RenderPipeline =
         device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: None,
+            label: Some("screen shader render pipeline"),
             layout: Some(&screen_shader_pipeline_layout),
             vertex: VertexState {
                 module: &screen_shader,
@@ -495,6 +551,18 @@ fn main() -> Result<(), Error> {
                 }
             }
             Event::AboutToWait => {
+                game.tick();
+
+                cam_uniform.slice(..).map_async(MapMode::Write, |_| {});
+                device.poll(MaintainBase::Wait);
+                queue.write_buffer(&cam_uniform, 0, bytemuck::bytes_of(&game.camera));
+                cam_uniform.unmap();
+
+                window_uniform.slice(..).map_async(MapMode::Write, |_| {});
+                device.poll(MaintainBase::Wait);
+                queue.write_buffer(&window_uniform, 0, bytemuck::bytes_of(&game.window_size));
+                window_uniform.unmap();
+
                 let surface_texture = surface.get_current_texture().unwrap();
                 let mut command_encoder =
                     device.create_command_encoder(&CommandEncoderDescriptor { label: None });
@@ -509,14 +577,16 @@ fn main() -> Result<(), Error> {
                             command_encoder.begin_compute_pass(&ComputePassDescriptor {
                                 ..Default::default()
                             });
+                        // update cam/window uniforms
+
                         ray_tracing_compute_pass.set_bind_group(0, &ray_tracing_bind_group, &[]);
                         ray_tracing_compute_pass.set_pipeline(&ray_tracing_pipeline);
                         // the globalinvocation id is a vec3 that corresponds to current width and height
                         // TODO: how do we dispatch more than 1 ray per pixel (and randomly too)
                         // second, how do we update hit records for a sphere in the compute shader?
                         ray_tracing_compute_pass.dispatch_workgroups(
-                            game.window_width,
-                            game.window_height,
+                            game.window_size.x,
+                            game.window_size.y,
                             1,
                         );
                         // i think drop auto calls compute pass end

@@ -1,16 +1,22 @@
 @group(0) @binding(0) var color_buffer: texture_storage_2d<rgba8unorm, write>;
 
+struct Camera {
+    eye: vec3f,
+    focal_length: f32,
+    direction: vec3f,
+    aspect_ratio: f32,
+    normal: vec3f,
+    dummy1: f32,
+    right: vec3f,
+    dummy2: f32
+}
+
+@group(0) @binding(1) var<uniform> cam: Camera;
+@group(0) @binding(2) var<uniform> window_size: vec2<u32>;
+
 struct Sphere {
     center: vec3<f32>,
     radius: f32
-}
-
-struct Camera {
-    eye: vec3<f32>,
-    direction: vec3<f32>,
-    normal: vec3<f32>,
-    right: vec3<f32>,
-    focal_length: f32
 }
 
 // number of pixels handled by this function
@@ -21,29 +27,22 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
 
     let sphere = Sphere(vec3(0., 0., -3.), .5);
     // check for intersection of ray with thing
-    var camera: Camera;
-    camera.eye = vec3(0., 0., 0.);
-    camera.direction = vec3(0., 0., -1.);
-    camera.normal = vec3(0., 1., 0.);
-    camera.right = vec3(1., 0., 0.);
-    camera.focal_length = 1.;
+
     // should be uniforms tbh
-    let aspect_ratio: f32 = 16. / 9.;
     let width = 1.;
-    let height = width / aspect_ratio;
-    let MAX_WIDTH: u32 = u32(400);
-    let MAX_HEIGHT: u32 = u32(f32(MAX_WIDTH) / aspect_ratio);
+    let height = width / cam.aspect_ratio;
+
     // find the top left node
     let tl_pixel_corner: vec2<f32> = vec2(-width / 2., height / 2.);
-    let du: vec2<f32> = vec2(width / f32(MAX_WIDTH), 0.);
-    let dv: vec2<f32> = vec2(0., -height / f32(MAX_HEIGHT));
+    let du: vec2<f32> = vec2(width / f32(window_size.x), 0.);
+    let dv: vec2<f32> = vec2(0., -height / f32(window_size.y));
     let tl_pixel = tl_pixel_corner + du / 2. + dv / 2.;
 
     let pixel = tl_pixel + du * f32(GlobalInvocationID.x) + dv * f32(GlobalInvocationID.y);
 
     // ray!
-    let origin = camera.eye;
-    let direction = -camera.eye + vec3<f32>(pixel.xy, 0.) + camera.focal_length * camera.direction;
+    let origin = cam.eye;
+    let direction = -cam.eye + vec3<f32>(pixel.xy, 0.) + cam.focal_length * cam.direction;
 
     let a = dot(direction, direction);
     let c_o = -sphere.center + origin;
