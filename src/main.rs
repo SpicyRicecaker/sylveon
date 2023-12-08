@@ -198,8 +198,9 @@ fn main() -> Result<(), Error> {
     let backend: Backends = match std::env::consts::OS {
         "linux" => Backends::VULKAN,
         "macos" => Backends::METAL,
+        "windows" => Backends::DX12,
         _ => {
-            panic!("unsupported OS. Supported operating systems include: linux, macos")
+            panic!("unsupported OS. Supported operating systems include: linux, macos, windows")
         }
     };
 
@@ -246,6 +247,24 @@ fn main() -> Result<(), Error> {
                     | Features::SHADER_EARLY_DEPTH_TEST,
             );
         }
+        Backends::DX12 => features.remove(
+            Features::SHADER_F16
+                | Features::TEXTURE_COMPRESSION_ETC2
+                | Features::TEXTURE_COMPRESSION_ASTC
+                | Features::TEXTURE_COMPRESSION_ASTC_HDR
+                | Features::PIPELINE_STATISTICS_QUERY
+                | Features::BUFFER_BINDING_ARRAY
+                | Features::STORAGE_RESOURCE_BINDING_ARRAY
+                | Features::PARTIALLY_BOUND_BINDING_ARRAY
+                | Features::POLYGON_MODE_POINT
+                | Features::SPIRV_SHADER_PASSTHROUGH
+                | Features::MULTIVIEW
+                | Features::VERTEX_ATTRIBUTE_64BIT
+                | Features::SHADER_UNUSED_VERTEX_OUTPUT
+                | Features::SHADER_F64
+                | Features::SHADER_I16
+                | Features::SHADER_EARLY_DEPTH_TEST,
+        ),
         _ => {
             unreachable!()
         }
