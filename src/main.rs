@@ -1,30 +1,159 @@
 use futures::executor;
-use std::{borrow::BorrowMut, panic::AssertUnwindSafe};
+use hal::auxil::db;
+use std::{
+    borrow::BorrowMut,
+    collections::{HashMap, HashSet},
+    panic::AssertUnwindSafe,
+};
 
 use anyhow::Error;
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use wgpu::*;
 use winit::{
     dpi::PhysicalSize,
     event::{ElementState, Event, KeyEvent, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    keyboard::{Key, NamedKey},
+    keyboard::{Key, ModifiersState, NamedKey, SmolStr},
+    platform::modifier_supplement::KeyEventExtModifierSupplement,
     raw_window_handle::{HasDisplayHandle, HasRawDisplayHandle, HasWindowHandle},
     window::WindowBuilder,
 };
 
 use log::{debug, error, info, log_enabled, Level};
 
+#[derive(Debug)]
 struct Sphere {
     center: Vec3,
     radius: f32,
 }
 
+#[derive(Debug, Default)]
 struct Camera {
     eye: Vec3,
     direction: Vec3,
     normal: Vec3,
     right: Vec3,
+    // distance from camera eye to viewport
+    focal_length: f32,
+}
+
+#[derive(Debug, Default)]
+struct Keys {
+    held_keys: HashSet<String>,
+}
+
+#[derive(Debug, Default)]
+
+struct Scene {
+    objects: Vec<Sphere>,
+}
+
+#[derive(Debug, Default)]
+struct Game {
+    camera: Camera,
+    window_width: u32,
+    window_height: u32,
+    aspect_ratio: u32,
+    camera_mode: CameraMode,
+    velocity: Vec3,
+    keys: Keys,
+    scene: Scene,
+}
+
+impl Game {
+    fn new(camera: Camera) -> Self {
+        let window_width: u32 = 400;
+        // aspect ratio
+        let aspect_ratio: f32 = 16. / 9.;
+        let window_height: u32 = ((1. / aspect_ratio) * window_width as f32) as u32;
+
+        Self {
+            camera,
+            camera_mode: CameraMode::Minecraft,
+            keys: Keys::default(),
+            scene: Scene {
+                objects: vec![Sphere {
+                    center: Vec3::new(0., 0., -1.),
+                    radius: 0.5,
+                }],
+            },
+            window_width,
+            window_height,
+            ..Default::default()
+        }
+    }
+}
+
+impl Game {
+    fn handle_key_event(&mut self, e: &KeyEvent) {
+        match e.key_without_modifiers().as_ref() {
+            Key::Named(NamedKey::Shift) => match e.state {
+                ElementState::Pressed => {
+                    self.keys.held_keys.remove("shift");
+                }
+                ElementState::Released => {
+                    self.keys.held_keys.insert("shift".into());
+                }
+            },
+            Key::Named(NamedKey::Space) => match e.state {
+                ElementState::Pressed => {
+                    self.keys.held_keys.remove("space");
+                }
+                ElementState::Released => {
+                    self.keys.held_keys.insert("space".into());
+                }
+            },
+            Key::Character(c) => match e.state {
+                ElementState::Pressed => {
+                    self.keys.held_keys.remove(c);
+                }
+                ElementState::Released => {
+                    self.keys.held_keys.insert(c.into());
+                }
+            },
+            _ => (),
+        }
+    }
+    fn tick(&mut self) {
+        // movement
+        {
+            if self.camera_mode == CameraMode::Minecraft {
+                let mut v = Vec3::new(0., 0., 0.);
+
+                let v_max: f32 = 0.1;
+                if self.keys.held_keys.contains("w") {
+                    v += v_max * self.camera.direction;
+                }
+                if self.keys.held_keys.contains("a") {
+                    v -= v_max * self.camera.right;
+                }
+                if self.keys.held_keys.contains("s") {
+                    v -= v_max * self.camera.direction;
+                }
+                if self.keys.held_keys.contains("d") {
+                    v -= v_max * self.camera.right;
+                }
+                if self.keys.held_keys.contains("space") {
+                    v += v_max * Vec3::new(0., 1., 0.);
+                }
+                if self.keys.held_keys.contains("shift") {
+                    v += v_max * Vec3::new(0., -1., 0.);
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CameraMode {
+    Minecraft,
+    Blender,
+}
+
+impl Default for CameraMode {
+    fn default() -> Self {
+        Self::Minecraft
+    }
 }
 
 fn main() -> Result<(), Error> {
@@ -37,26 +166,15 @@ fn main() -> Result<(), Error> {
     // event_loop.set_control_flow(ControlFlow::Wait);
 
     // setup
-
-    let spheres: Vec<Sphere> = vec![Sphere {
-        center: Vec3::new(0., 0., -1.),
-        radius: 0.5,
-    }];
-
     let camera = Camera {
         eye: Vec3::new(0., 0., 0.),
         direction: Vec3::new(0., 0., -1.),
         normal: Vec3::new(0., 1., 0.),
         right: Vec3::new(1., 0., 0.),
+        focal_length: 1.,
     };
 
-    let window_width: u32 = 400;
-    // aspect ratio
-    let aspect_ratio: f32 = 16. / 9.;
-    let window_height: u32 = ((1. / aspect_ratio) * window_width as f32) as u32;
-
-    // distance from camera eye to viewport
-    let focal_length = 1.;
+    let mut game = Game::new(camera);
 
     let event_loop = EventLoop::new().unwrap();
 
@@ -65,7 +183,7 @@ fn main() -> Result<(), Error> {
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let window = WindowBuilder::new()
-        .with_inner_size(PhysicalSize::new(window_width, window_height))
+        .with_inner_size(PhysicalSize::new(game.window_width, game.window_height))
         .build(&event_loop)
         .unwrap();
 
@@ -145,7 +263,7 @@ fn main() -> Result<(), Error> {
     surface.configure(
         &device,
         &surface
-            .get_default_config(&adapter, window_width, window_height)
+            .get_default_config(&adapter, game.window_width, game.window_height)
             .unwrap(),
     );
 
@@ -164,8 +282,8 @@ fn main() -> Result<(), Error> {
     let color_buffer: Texture = device.create_texture(&TextureDescriptor {
         label: None,
         size: Extent3d {
-            width: window_width,
-            height: window_height,
+            width: game.window_width,
+            height: game.window_height,
             depth_or_array_layers: 1,
         },
         format: TextureFormat::Rgba8Unorm,
@@ -322,10 +440,14 @@ fn main() -> Result<(), Error> {
     //     multiview: (),
     // });
 
+    let mut modifiers = ModifiersState::default();
     event_loop.run(move |event, elwt| {
         match event {
             Event::WindowEvent { event, .. } => {
                 match event {
+                    WindowEvent::ModifiersChanged(new) => {
+                        modifiers = new.state();
+                    }
                     WindowEvent::RedrawRequested => {
                         // Redraw the application.
                         //
@@ -333,22 +455,18 @@ fn main() -> Result<(), Error> {
                         // this event rather than in AboutToWait, since rendering in here allows
                         // the program to gracefully handle redraws requested by the OS.
                     }
-                    WindowEvent::KeyboardInput {
-                        event:
-                            KeyEvent {
-                                logical_key: key,
-                                state: ElementState::Pressed,
-                                ..
-                            },
-                        ..
-                    } => {
-                        match key {
-                            Key::Named(NamedKey::Escape) => {
+                    WindowEvent::KeyboardInput { event, .. } => {
+                        game.handle_key_event(&event);
+                        if let KeyEvent {
+                            logical_key: key,
+                            state: ElementState::Pressed,
+                            ..
+                        } = &event
+                        {
+                            if let Key::Named(NamedKey::Escape) = key {
                                 elwt.exit();
                             }
-                            _ => (),
                         }
-                        dbg!(key);
                     }
                     WindowEvent::CloseRequested => {
                         println!("The close button was pressed; stopping");
@@ -378,8 +496,8 @@ fn main() -> Result<(), Error> {
                         // TODO: how do we dispatch more than 1 ray per pixel (and randomly too)
                         // second, how do we update hit records for a sphere in the compute shader?
                         ray_tracing_compute_pass.dispatch_workgroups(
-                            window_width,
-                            window_height,
+                            game.window_width,
+                            game.window_height,
                             1,
                         );
                         // i think drop auto calls compute pass end
