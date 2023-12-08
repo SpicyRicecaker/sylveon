@@ -64,7 +64,7 @@ struct Game {
 
 impl Game {
     fn new(camera: Camera) -> Self {
-        let width: u32 = 400;
+        let width: u32 = 1000;
         // aspect ratio
         let height: u32 = ((1. / camera.aspect_ratio) * width as f32) as u32;
 

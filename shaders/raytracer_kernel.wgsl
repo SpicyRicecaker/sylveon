@@ -67,9 +67,9 @@ fn random_in_hemisphere(ray_incident: vec3f, normal: vec3f) -> vec3f {
 fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
     let screen_pos: vec2<i32> = vec2(i32(GlobalInvocationID.x), i32(GlobalInvocationID.y));
 
-    var spheres = array<Sphere, 2>(
-        Sphere(vec3(0., 0., -3.), .5),
-        Sphere(vec3(0., -100.5, -3.), 100.),
+    var spheres = array<Sphere, 1>(
+        Sphere(vec3(0., 0., -1.), .5),
+        // Sphere(vec3(0., -100.5, -1.), 100.),
     );
     // check for intersection of ray with thing
 
@@ -77,12 +77,14 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
     let width = 1.;
     let height = width / cam.aspect_ratio;
 
+    let viewport_u = vec3f(width, 0., 0.);
+    let viewport_v = vec3f(0., -height, 0.);
+
     // find the top left node
     // treat this screen as if it only exists in two dimensions
-    let tl_pixel_corner: vec2<f32> = vec2(-width / 2., height / 2.);
-    let du: vec2<f32> = vec2(width / f32(window_size.x), 0.);
-    let dv: vec2<f32> = vec2(0., -height / f32(window_size.y));
-    let tl_pixel = tl_pixel_corner + du / 2. + dv / 2.;
+    let du = viewport_u / f32(window_size.x);
+    let dv = viewport_v / f32(window_size.y);
+    let tl_pixel = cam.eye + cam.focal_length * cam.direction - .5 * (viewport_u + viewport_v) + .5 * (du + dv);
 
     let pixel = tl_pixel + du * f32(GlobalInvocationID.x) + dv * f32(GlobalInvocationID.y);
 
@@ -92,11 +94,11 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
 
     var origin = cam.eye;
     // this works, but only when we don't rotate the camera at all
-    var direction = vec3<f32>(pixel.xy, 0.) + cam.focal_length * cam.direction;
+    var direction = -cam.eye + pixel;
     var pixel_color = vec3f(0., 0., 0.);
     // var multiplier = .5;
-    var multiplier = .5;
-    var t_min = 100000.;
+    // var multiplier = 1.;
+    // var t_min = 100000.;
 
     loop {
         var hit_record: HitRecord;
@@ -104,10 +106,10 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
         // loop through all objects in scene
         var i: i32 = 0;
         loop {
-            if i >= 2 { break; }
+            if i >= 1 { break; }
 
-            let a = dot(direction, direction);
             let c_o = -spheres[i].center + origin;
+            let a = dot(direction, direction);
             let b = 2. * dot(direction, c_o);
             let c = dot(c_o, c_o) - pow(spheres[i].radius, 2.);
 
@@ -118,29 +120,28 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
             }
 
             // why not always take smallest t?
-            let t = (-b - sqrt(det)) / 2. * a;
+            let t = (-b - sqrt(det)) / (2. * a);
 
-            if t > t_min {
-                continue;
-            }
+            // if t > t_min {
+            //     continue;
+            // }
 
             let p = origin + t * direction;
-            let normal = normalize(-spheres[i].center + p);
+            let normal = (-spheres[i].center + p) / spheres[i].radius;
 
-            hit_record.p = p;
-            hit_record.t = t;
-            t_min = t;
-            hit_record.normal = normal;
-            hit_record.hit = true;
+            // hit_record.p = p;
+            // hit_record.t = t;
+            // t_min = t;
+            // hit_record.normal = normal;
+            // hit_record.hit = true;
 
             // make sure this is a color between 0 and 1 lol
-            // pixel_color = multiplier * (normal + vec3(1., 1., 1.)) / 2.;
-            pixel_color = multiplier * (normal + vec3(1., 1., 1.)) / 2.;
+            pixel_color = .5 * (normal + vec3(1., 1., 1.));
 
-            multiplier *= .5;
+            // multiplier *= .5;
 
-            origin = hit_record.p;
-            direction = random_in_hemisphere(direction, hit_record.normal);
+            // origin = hit_record.p;
+            // direction = random_in_hemisphere(direction, hit_record.normal);
 
             continuing {
                 i = i + 1;
