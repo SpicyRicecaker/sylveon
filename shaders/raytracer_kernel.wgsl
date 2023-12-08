@@ -51,18 +51,19 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
     let c = dot(c_o, c_o) - pow(sphere.radius, 2.);
 
     let det = pow(b, 2.) - 4. * a * c;
+
+    var pixel_color = vec3(0., 0., 0.);
+
     if (det >= 0.) {
-        // normalized value
-        pixel_color = vec3(1., 0., 0.);
-    } else {
+        // why not always take smallest t?
+        let t = (-b - sqrt(det)) / 2. * a;
+        let p = origin + t * direction;
 
-    // why not always take smallest t?
-    let t = (-b - sqrt(det)) / 2a;
-    let p = origin + t * direction;
+        let normal = normalize(-sphere.center + p);
+        // make sure this is a color between 0 and 1 lol
 
-    var pixel_color = vec3<f32>(0., 0., 0.);
-        pixel_color = vec3(0., .5, .7);
-    }
+        pixel_color = (normal + vec3(1., 1., 1.)) / 2.;
+    } 
 
     textureStore(color_buffer, screen_pos, vec4<f32>(pixel_color, 1.));
 }

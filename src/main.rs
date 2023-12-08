@@ -1,5 +1,5 @@
 use futures::executor;
-use std::borrow::BorrowMut;
+use std::{borrow::BorrowMut, panic::AssertUnwindSafe};
 
 use anyhow::Error;
 use glam::Vec3;
