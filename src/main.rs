@@ -77,9 +77,17 @@ fn main() -> Result<(), Error> {
 
     // first let us clear the output of our screen using webgpu
 
+    let backend: Backends = match std::env::consts::OS {
+        "linux" => Backends::VULKAN,
+        "macos" => Backends::METAL,
+        _ => {
+            panic!("unsupported OS. Supported operating systems include: linux, macos")
+        }
+    };
+
     // get gpu
     let instance = Instance::new(InstanceDescriptor {
-        backends: Backends::VULKAN,
+        backends: backend,
         ..Default::default()
     });
     // get surface
@@ -93,13 +101,37 @@ fn main() -> Result<(), Error> {
     .unwrap();
     // featureset supported on NVIDIA + Linux + Vulkan
     let mut features = Features::all();
-    features.remove(
-        Features::TEXTURE_COMPRESSION_ETC2
-            | Features::TEXTURE_COMPRESSION_ASTC
-            | Features::TEXTURE_COMPRESSION_ASTC_HDR
-            | Features::VERTEX_ATTRIBUTE_64BIT
-            | Features::SHADER_EARLY_DEPTH_TEST,
-    );
+    match backend {
+        Backends::VULKAN => {
+            features.remove(
+                Features::TEXTURE_COMPRESSION_ETC2
+                    | Features::TEXTURE_COMPRESSION_ASTC
+                    | Features::TEXTURE_COMPRESSION_ASTC_HDR
+                    | Features::VERTEX_ATTRIBUTE_64BIT
+                    | Features::SHADER_EARLY_DEPTH_TEST,
+            );
+        }
+        Backends::METAL => {
+            features.remove(
+                Features::PIPELINE_STATISTICS_QUERY
+                    | Features::TIMESTAMP_QUERY_INSIDE_PASSES
+                    | Features::BUFFER_BINDING_ARRAY
+                    | Features::PARTIALLY_BOUND_BINDING_ARRAY
+                    | Features::MULTI_DRAW_INDIRECT_COUNT
+                    | Features::POLYGON_MODE_POINT
+                    | Features::CONSERVATIVE_RASTERIZATION
+                    | Features::SPIRV_SHADER_PASSTHROUGH
+                    | Features::MULTIVIEW
+                    | Features::SHADER_F64
+                    | Features::SHADER_I16
+                    | Features::VERTEX_ATTRIBUTE_64BIT
+                    | Features::SHADER_EARLY_DEPTH_TEST,
+            );
+        }
+        _ => {
+            unreachable!()
+        }
+    }
     // get device & queue
     let (device, queue) = executor::block_on(adapter.request_device(
         &DeviceDescriptor {
@@ -339,8 +371,7 @@ fn main() -> Result<(), Error> {
                         let mut ray_tracing_compute_pass =
                             command_encoder.begin_compute_pass(&ComputePassDescriptor {
                                 ..Default::default()
-                            }
-                        );
+                            });
                         ray_tracing_compute_pass.set_bind_group(0, &ray_tracing_bind_group, &[]);
                         ray_tracing_compute_pass.set_pipeline(&ray_tracing_pipeline);
                         // the globalinvocation id is a vec3 that corresponds to current width and height
@@ -373,7 +404,8 @@ fn main() -> Result<(), Error> {
                             timestamp_writes: None,
                             occlusion_query_set: None,
                         };
-                        let mut screen_shader_render_pass = command_encoder.begin_render_pass(&render_pass_descriptor);
+                        let mut screen_shader_render_pass =
+                            command_encoder.begin_render_pass(&render_pass_descriptor);
                         screen_shader_render_pass.set_bind_group(0, &screen_shader_bind_group, &[]);
                         screen_shader_render_pass.set_pipeline(&screen_shader_pipeline);
                         screen_shader_render_pass.draw(0..6, 0..1);
