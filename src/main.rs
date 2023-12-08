@@ -142,7 +142,6 @@ impl Game {
 
                 self.velocity = v;
             }
-            dbg!(self.camera.eye);
 
             self.camera.eye += self.velocity;
         }
@@ -318,9 +317,6 @@ fn main() -> Result<(), Error> {
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::MAP_WRITE,
         mapped_at_creation: false,
     });
-
-    dbg!(std::mem::size_of::<Camera>() as wgpu::BufferAddress);
-    dbg!(std::mem::size_of::<UVec2>() as wgpu::BufferAddress);
 
     let color_buffer: Texture = device.create_texture(&TextureDescriptor {
         label: None,

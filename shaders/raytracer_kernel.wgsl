@@ -33,6 +33,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
     let height = width / cam.aspect_ratio;
 
     // find the top left node
+    // treat this screen as if it only exists in two dimensions
     let tl_pixel_corner: vec2<f32> = vec2(-width / 2., height / 2.);
     let du: vec2<f32> = vec2(width / f32(window_size.x), 0.);
     let dv: vec2<f32> = vec2(0., -height / f32(window_size.y));
@@ -41,8 +42,10 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
     let pixel = tl_pixel + du * f32(GlobalInvocationID.x) + dv * f32(GlobalInvocationID.y);
 
     // ray!
+    // make sure to center it at the current eye position
     let origin = cam.eye;
-    let direction = -cam.eye + vec3<f32>(pixel.xy, 0.) + cam.focal_length * cam.direction;
+    // this works, but only when we don't rotate the camera at all
+    let direction = vec3<f32>(pixel.xy, 0.) + cam.focal_length * cam.direction;
 
     let a = dot(direction, direction);
     let c_o = -sphere.center + origin;
