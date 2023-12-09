@@ -61,21 +61,33 @@ fn random_in_hemisphere(ray_incident: vec3f, normal: vec3f) -> vec3f {
     return ray_reflected;
 }
 
+struct RangeInclusive {
+    min: f32,
+    max: f32
+}
+
+fn is_in_range(r: RangeInclusive, n: f32) -> bool {
+    return r.min <= n && n <= r.max;
+}
+
 // number of pixels handled by this function
 @compute @workgroup_size(1,1,1)
 // globalinvocationid: coordinate of current pixel
 fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
     let screen_pos: vec2<i32> = vec2(i32(GlobalInvocationID.x), i32(GlobalInvocationID.y));
 
-    var spheres = array<Sphere, 1>(
+    var spheres = array<Sphere, 2>(
+        Sphere(vec3(0., -100.5, -1.), 100.),
         Sphere(vec3(0., 0., -1.), .5),
-        // Sphere(vec3(0., -100.5, -1.), 100.),
     );
     // check for intersection of ray with thing
 
     // should be uniforms tbh
-    let width = 1.;
-    let height = width / cam.aspect_ratio;
+    // let width = 1.;
+    // let height = width / cam.aspect_ratio;
+
+    let height = 2.;
+    let width = height * cam.aspect_ratio;
 
     let viewport_u = vec3f(width, 0., 0.);
     let viewport_v = vec3f(0., -height, 0.);
@@ -95,7 +107,9 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
     var origin = cam.eye;
     // this works, but only when we don't rotate the camera at all
     var direction = -cam.eye + pixel;
+    // by default should be skybox color
     var pixel_color = vec3f(0., 0., 0.);
+    var t_range = RangeInclusive(0., 1000.);
     // var multiplier = .5;
     // var multiplier = 1.;
     // var t_min = 100000.;
@@ -106,7 +120,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
         // loop through all objects in scene
         var i: i32 = 0;
         loop {
-            if i >= 1 { break; }
+            if i >= 2 { break; }
 
             let c_o = -spheres[i].center + origin;
             let a = dot(direction, direction);
@@ -121,6 +135,14 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
 
             // why not always take smallest t?
             let t = (-b - sqrt(det)) / (2. * a);
+
+            if !is_in_range(t_range, t) {
+                continue;
+            }
+
+            // For this specific ray, do not accept any hits farther away
+            // from the current hit
+            t_range.max = min(t_range.max, t);
 
             // if t > t_min {
             //     continue;
