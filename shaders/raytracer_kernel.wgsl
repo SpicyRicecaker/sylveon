@@ -66,8 +66,159 @@ struct RangeInclusive {
     max: f32
 }
 
+struct Ray {
+    origin: vec3f,
+    direction: vec3f,
+}
+
+struct StackFrame {
+    outgoing: Ray,
+    depth: u32,
+}
+
 fn is_in_range(r: RangeInclusive, n: f32) -> bool {
     return r.min <= n && n <= r.max;
+}
+
+var<private> spheres: array<Sphere, 2>;
+var<private> global_invocation_id: vec2<i32>;
+
+fn world_get_background_color() -> vec3f {
+    let blue = vec3f(135., 206., 235.) / 256.;
+    let white = vec3f(1., 1., 1.);
+    // lerp based on y position
+    let color_ratio = f32(global_invocation_id.y) / f32(window_size.y);
+    let pixel_color = (1. - color_ratio) * blue + color_ratio * white;
+    return pixel_color;
+}
+
+fn world_get_normal(p: vec3f, id: i32) -> vec3f {
+    return (-spheres[id].center + p) / spheres[id].radius;
+}
+
+struct Intersect {
+    t: f32,
+    id: i32
+}
+
+fn world_get_intersect(ray: Ray) -> Intersect {
+    var t_range = RangeInclusive(0., 1000.);
+    var i: i32 = 0;
+
+    var intersect = Intersect();
+    intersect.t = 0.;
+    intersect.id = -1;
+
+    loop {
+        if i >= 2 { break; }
+
+        let c_o = -spheres[i].center + ray.origin;
+        let a = dot(ray.direction, ray.direction);
+        let b = 2. * dot(ray.direction, c_o);
+        let c = dot(c_o, c_o) - pow(spheres[i].radius, 2.);
+
+        let det = pow(b, 2.) - 4. * a * c;
+
+        if det < 0. {
+            continue;
+        }
+
+        // why not always take smallest t?
+        let t = (-b - sqrt(det)) / (2. * a);
+
+        // For this specific ray, do not accept any hits farther away
+        // from the current hit
+        if !is_in_range(t_range, t) {
+            continue;
+        }
+
+        intersect.t = t;
+        intersect.id = i;
+
+        t_range.max = min(t_range.max, t);
+
+        continuing {
+            i += 1;
+        }
+    }
+
+    return intersect;
+}
+
+struct Light {
+    center: vec3f
+}
+
+var<private> sun: Light;
+
+// if direct view of the sun
+fn world_get_direct_light_at_point(p: vec3f) -> bool {
+    var ray = Ray();
+    ray.origin = sun.center;
+    ray.direction = -sun.center + p;
+
+    let intersect = world_get_intersect(ray);
+
+    var out = true;
+    if (intersect.id >= 0) {
+        // find the time it takes for sun's ray to reach point
+        let t_to_p = length(-ray.origin + p) / length(ray.direction);
+
+        // sun's ray should reach point faster than (or in equal time of) the shortest intersection point
+        // i.e., t_to_p <= t_to_intersect -> t_to_p - t_to_intersect <= 0
+        // generous margin of error
+        if !(abs(t_to_p - intersect.t) <= 0.001) {
+            out = false;
+        }
+    } 
+    return out;
+}
+
+fn world_get_color(ray: Ray) -> vec3f {
+    // at bottom, completely white
+    // at top, sky blue
+
+    // we can't directly take this value for the pixel yet, since our path tracer is going to add that in for us
+    var pixel_color = vec3f(0., 0., 0.);
+
+    let max_depth = 1;
+    var depth = 0;
+
+    loop {
+        if (depth == max_depth) { break; }
+
+        let intersect = world_get_intersect(ray);
+        
+        // assume sky is just empty
+        if intersect.id < 0 {
+            pixel_color = world_get_background_color();
+            break;
+        }
+
+        let p = ray.origin + intersect.t * ray.direction;
+
+        let normal = world_get_normal(p, intersect.id);
+
+        // make sure this is a color between 0 and 1 lol
+        pixel_color = .5 * (normal + vec3(1., 1., 1.));
+
+
+        // // get direct lighting
+        // var direct: vec3f = world_get_direct_light_at_point(p);
+
+        // let new_direction = random_in_hemisphere(ray.direction, normal);
+
+        // pixel_color = BRDF(ray.direction, new_direction) * ray.normal + direct;
+
+        // ray.origin = p;
+        // ray.direction = new_direction;
+
+        continuing {
+            depth += 1;
+        }
+    }
+
+    return pixel_color;
 }
 
 // number of pixels handled by this function
@@ -75,16 +226,11 @@ fn is_in_range(r: RangeInclusive, n: f32) -> bool {
 // globalinvocationid: coordinate of current pixel
 fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
     let screen_pos: vec2<i32> = vec2(i32(GlobalInvocationID.x), i32(GlobalInvocationID.y));
+    global_invocation_id = screen_pos;
 
-    var spheres = array<Sphere, 2>(
-        Sphere(vec3(0., -100.5, -1.), 100.),
-        Sphere(vec3(0., 0., -1.), .5),
-    );
-    // check for intersection of ray with thing
-
-    // should be uniforms tbh
-    // let width = 1.;
-    // let height = width / cam.aspect_ratio;
+    // initialize spherse
+    spheres[0] = Sphere(vec3(0., -100.5, -1.), 100.);
+    spheres[1] = Sphere(vec3(0., 0., -1.), .5);
 
     let height = 2.;
     let width = height * cam.aspect_ratio;
@@ -102,83 +248,14 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
 
     // ray!
     // make sure to center it at the current eye position
-    var bounces_left = 0;
-
-    var origin = cam.eye;
+    var ray = Ray();
     // this works, but only when we don't rotate the camera at all
-    var direction = -cam.eye + pixel;
+    ray.origin = cam.eye;
     // by default should be skybox color
-    var pixel_color = vec3f(0., 0., 0.);
-    var t_range = RangeInclusive(0., 1000.);
-    // var multiplier = .5;
-    // var multiplier = 1.;
-    // var t_min = 100000.;
+    ray.direction = -cam.eye + pixel;
 
-    loop {
-        var hit_record: HitRecord;
-        hit_record.hit = false;
-        // loop through all objects in scene
-        var i: i32 = 0;
-        loop {
-            if i >= 2 { break; }
-
-            let c_o = -spheres[i].center + origin;
-            let a = dot(direction, direction);
-            let b = 2. * dot(direction, c_o);
-            let c = dot(c_o, c_o) - pow(spheres[i].radius, 2.);
-
-            let det = pow(b, 2.) - 4. * a * c;
-
-            if det < 0. {
-                continue;
-            }
-
-            // why not always take smallest t?
-            let t = (-b - sqrt(det)) / (2. * a);
-
-            if !is_in_range(t_range, t) {
-                continue;
-            }
-
-            // For this specific ray, do not accept any hits farther away
-            // from the current hit
-            t_range.max = min(t_range.max, t);
-
-            // if t > t_min {
-            //     continue;
-            // }
-
-            let p = origin + t * direction;
-            let normal = (-spheres[i].center + p) / spheres[i].radius;
-
-            // hit_record.p = p;
-            // hit_record.t = t;
-            // t_min = t;
-            // hit_record.normal = normal;
-            // hit_record.hit = true;
-
-            // make sure this is a color between 0 and 1 lol
-            pixel_color = .5 * (normal + vec3(1., 1., 1.));
-
-            // multiplier *= .5;
-
-            // origin = hit_record.p;
-            // direction = random_in_hemisphere(direction, hit_record.normal);
-
-            continuing {
-                i = i + 1;
-            }
-        }
-
-        if !hit_record.hit {
-            break;
-        } 
-        
-        bounces_left = bounces_left - 1;
-
-        if bounces_left <= 0 { break; }
-    }
-
+    // check for intersection of ray with thing
+    var pixel_color = world_get_color(ray);
 
     textureStore(color_buffer, screen_pos, vec4<f32>(pixel_color, 1.));
 }
