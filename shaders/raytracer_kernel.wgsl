@@ -102,7 +102,7 @@ struct Intersect {
 }
 
 fn world_get_intersect(ray: Ray) -> Intersect {
-    var t_range = RangeInclusive(0., 1000.);
+    var t_range = RangeInclusive(0.001, 1000.);
     var i: i32 = 0;
 
     var intersect = Intersect();
@@ -124,12 +124,16 @@ fn world_get_intersect(ray: Ray) -> Intersect {
         }
 
         // why not always take smallest t?
-        let t = (-b - sqrt(det)) / (2. * a);
+        var t = (-b - sqrt(det)) / (2. * a);
 
         // For this specific ray, do not accept any hits farther away
         // from the current hit
         if !is_in_range(t_range, t) {
-            continue;
+            // check with the positive t
+            t = (-b + sqrt(det)) / (2. * a);
+            if !is_in_range(t_range, t) {
+                continue;
+            }
         }
 
         intersect.t = t;
@@ -154,22 +158,22 @@ var<private> sun: Light;
 // if direct view of the sun
 fn world_get_direct_light_at_point(p: vec3f) -> bool {
     var ray = Ray();
-    ray.origin = sun.center;
-    ray.direction = -sun.center + p;
+    ray.origin = p;
+    ray.direction = normalize(-p + sun.center);
 
     let intersect = world_get_intersect(ray);
 
     var out = true;
     if (intersect.id >= 0) {
         // find the time it takes for sun's ray to reach point
-        let t_to_p = length(-ray.origin + p) / length(ray.direction);
+        // let t_to_p = length(-p + sun.center) / length(ray.direction);
 
         // sun's ray should reach point faster than (or in equal time of) the shortest intersection point
         // i.e., t_to_p <= t_to_intersect -> t_to_p - t_to_intersect <= 0
         // generous margin of error
-        if !(abs(t_to_p - intersect.t) <= 0.001) {
+        // if !(abs(t_to_p - intersect.t) <= 0.0001) {
             out = false;
-        }
+        // }
     } 
     return out;
 }
@@ -197,10 +201,13 @@ fn world_get_color(ray: Ray) -> vec3f {
 
         let p = ray.origin + intersect.t * ray.direction;
 
-        let normal = world_get_normal(p, intersect.id);
+        if world_get_direct_light_at_point(p) {
+            let normal = world_get_normal(p, intersect.id);
 
-        // make sure this is a color between 0 and 1 lol
-        pixel_color = .5 * (normal + vec3(1., 1., 1.));
+            // make sure this is a color between 0 and 1 lol
+            pixel_color = .5 * (normal + vec3(1., 1., 1.));
+        }
+
 
 
         // // get direct lighting
@@ -228,9 +235,11 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
     let screen_pos: vec2<i32> = vec2(i32(GlobalInvocationID.x), i32(GlobalInvocationID.y));
     global_invocation_id = screen_pos;
 
-    // initialize spherse
+    // initialize spheres
     spheres[0] = Sphere(vec3(0., -100.5, -1.), 100.);
     spheres[1] = Sphere(vec3(0., 0., -1.), .5);
+    // sun
+    sun.center = vec3(0., 100., 0.);
 
     let height = 2.;
     let width = height * cam.aspect_ratio;

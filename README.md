@@ -25,3 +25,7 @@ Random GPU algorithms (https://gist.github.com/munrocket/236ed5ba7e409b8bdf1ff6e
 (https://www.techspot.com/article/1888-how-to-3d-rendering-rasterization-ray-tracing/) BVH Overview 
 
 https://www.scratchapixel.com/ Raytracing in One Weekend but explained differently pog?
+
+(https://www.scratchapixel.com/lessons/3d-basic-rendering/rendering-3d-scene-overview/introduction-light-transport.html) Unidirectional path tracing
+
+(https://www.realtimerendering.com/raytracing.html) Includes so many websites listed above.
