@@ -6,13 +6,18 @@ struct Camera {
     direction: vec3f,
     aspect_ratio: f32,
     normal: vec3f,
-    dummy1: f32,
+    fov_y: f32,
     right: vec3f,
-    dummy2: f32
+    dummy1: f32
 }
 
 @group(0) @binding(1) var<uniform> cam: Camera;
 @group(0) @binding(2) var<uniform> window_size: vec2u;
+
+struct Material {
+    color: vec3f,
+    ambient: vec3f,
+}
 
 struct Sphere {
     center: vec3f,
@@ -172,7 +177,7 @@ fn world_get_direct_light_at_point(p: vec3f) -> bool {
         // i.e., t_to_p <= t_to_intersect -> t_to_p - t_to_intersect <= 0
         // generous margin of error
         // if !(abs(t_to_p - intersect.t) <= 0.0001) {
-            out = false;
+        out = false;
         // }
     } 
     return out;
@@ -208,8 +213,6 @@ fn world_get_color(ray: Ray) -> vec3f {
             pixel_color = .5 * (normal + vec3(1., 1., 1.));
         }
 
-
-
         // // get direct lighting
         // var direct: vec3f = world_get_direct_light_at_point(p);
 
@@ -241,7 +244,8 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
     // sun
     sun.center = vec3(0., 100., 0.);
 
-    let height = 2.;
+    // screen space is [-1., 1.]
+    let height = 2. * tan(cam.fov_y) * length(cam.focal_length);
     let width = height * cam.aspect_ratio;
 
     let viewport_u = vec3f(width, 0., 0.);

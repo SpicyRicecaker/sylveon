@@ -36,9 +36,9 @@ struct Camera {
     direction: Vec3,
     aspect_ratio: f32,
     normal: Vec3,
-    _1: f32,
+    fov_y: f32,
     right: Vec3,
-    _2: f32,
+    _1: f32,
 }
 
 #[derive(Debug, Default)]
@@ -177,6 +177,7 @@ fn main() -> Result<(), Error> {
         right: Vec3::new(1., 0., 0.),
         focal_length: 1.,
         aspect_ratio: 16. / 9.,
+        fov_y: 20.0,
         ..Default::default()
     };
 

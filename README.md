@@ -29,3 +29,7 @@ https://www.scratchapixel.com/ Raytracing in One Weekend but explained different
 (https://www.scratchapixel.com/lessons/3d-basic-rendering/rendering-3d-scene-overview/introduction-light-transport.html) Unidirectional path tracing
 
 (https://www.realtimerendering.com/raytracing.html) Includes so many websites listed above.
+
+(https://www.youtube.com/watch?v=4gXPVoippTs&list=PLujxSBD-JXgnGmsn7gEyN28P1DnRZG7qi&index=3) Radiance model of simulation. BRDF, BTDF. BSDF. Physics of transmittance vs. absorption of light, intensity.
+ 
+(https://www.scratchapixel.com/lessons/3d-basic-rendering/ray-tracing-generating-camera-rays/generating-camera-rays.html, https://www.youtube.com/watch?v=ZhN5-o397QI&list=PLujxSBD-JXgnGmsn7gEyN28P1DnRZG7qi&index=10, https://pbr-book.org/4ed/Cameras_and_Film/Camera_Interface, https://raytracing.github.io/books/RayTracingInOneWeekend.html) Trying to understand wtf perspective camera (w/ fov) means!!!
