@@ -177,7 +177,7 @@ fn main() -> Result<(), Error> {
         right: Vec3::new(1., 0., 0.),
         focal_length: 1.,
         aspect_ratio: 16. / 9.,
-        fov_y: 20.0,
+        fov_y: 60.0,
         ..Default::default()
     };
 

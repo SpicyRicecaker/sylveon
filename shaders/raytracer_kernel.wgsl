@@ -245,7 +245,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
     sun.center = vec3(0., 100., 0.);
 
     // screen space is [-1., 1.]
-    let height = 2. * tan(cam.fov_y) * length(cam.focal_length);
+    let height = 2. * tan(radians(cam.fov_y) / 2.) * length(cam.focal_length);
     let width = height * cam.aspect_ratio;
 
     let viewport_u = vec3f(width, 0., 0.);
