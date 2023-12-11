@@ -245,17 +245,24 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
     sun.center = vec3(0., 100., 0.);
 
     // screen space is [-1., 1.]
-    let height = 2. * tan(radians(cam.fov_y) / 2.) * length(cam.focal_length);
+    let height = 2. * tan(radians(cam.fov_y) / 2.) * cam.focal_length;
     let width = height * cam.aspect_ratio;
 
-    let viewport_u = vec3f(width, 0., 0.);
-    let viewport_v = vec3f(0., -height, 0.);
+    let camera_coordinate_system: mat3x3f = transpose(mat3x3f(
+        cam.right,
+        cam.normal,
+        -cam.direction,
+    ));
+
+    let viewport_u = vec3f(width, 0., 0.) * camera_coordinate_system;
+    let viewport_v = vec3f(0., -height, 0.) * camera_coordinate_system;
 
     // find the top left node
     // treat this screen as if it only exists in two dimensions
     let du = viewport_u / f32(window_size.x);
     let dv = viewport_v / f32(window_size.y);
     let tl_pixel = cam.eye + cam.focal_length * cam.direction - .5 * (viewport_u + viewport_v) + .5 * (du + dv);
+    // let tl_pixel = cam.eye - (cam.focal_length * w) - .5 * (viewport_u + viewport_v) + .5 * (du + dv);
 
     let pixel = tl_pixel + du * f32(GlobalInvocationID.x) + dv * f32(GlobalInvocationID.y);
 

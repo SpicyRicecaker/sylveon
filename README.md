@@ -33,3 +33,8 @@ https://www.scratchapixel.com/ Raytracing in One Weekend but explained different
 (https://www.youtube.com/watch?v=4gXPVoippTs&list=PLujxSBD-JXgnGmsn7gEyN28P1DnRZG7qi&index=3) Radiance model of simulation. BRDF, BTDF. BSDF. Physics of transmittance vs. absorption of light, intensity.
  
 (https://www.scratchapixel.com/lessons/3d-basic-rendering/ray-tracing-generating-camera-rays/generating-camera-rays.html, https://www.youtube.com/watch?v=ZhN5-o397QI&list=PLujxSBD-JXgnGmsn7gEyN28P1DnRZG7qi&index=10, https://pbr-book.org/4ed/Cameras_and_Film/Camera_Interface, https://raytracing.github.io/books/RayTracingInOneWeekend.html) Trying to understand wtf perspective camera (w/ fov) means!!!
+
+<!-- (https://www.youtube.com/watch?v=zc8b2Jo7mno) Gimbal lock in attempting to make 3D minecraft camera! (Blender Manipulator tool - rotate around the z-axis and then rotate around the x-axis) -->
+Really weird camera rotations if you do yaw before pitch, since you're rotating from the x-axis and y-axis. Instead, pitch first before yaw allows you to rotate from the start in both ways.  (https://forum.gamemaker.io/index.php?threads/first-person-camera-rotation.38106/post-235130)
+
+(https://eliemichel.github.io/LearnWebGPU/basic-3d-rendering/3d-meshes/transformation-matrices.html) interesting resource for WebGPU matrices. Basically call `transpose` right after passing in vectors into matrices and it makes much more sense.

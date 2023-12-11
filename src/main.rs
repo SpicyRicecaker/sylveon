@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::Error;
-use glam::{UVec2, Vec2, Vec3};
+use glam::{DVec2, UVec2, Vec2, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
 use wgpu::*;
 use winit::{
     dpi::PhysicalSize,
@@ -16,7 +16,7 @@ use winit::{
     keyboard::{Key, ModifiersState, NamedKey, SmolStr},
     platform::modifier_supplement::KeyEventExtModifierSupplement,
     raw_window_handle::{HasDisplayHandle, HasRawDisplayHandle, HasWindowHandle},
-    window::WindowBuilder,
+    window::{CursorGrabMode, Window, WindowBuilder},
 };
 
 use log::{debug, error, info, log_enabled, Level};
@@ -52,6 +52,15 @@ struct Scene {
     objects: Vec<Sphere>,
 }
 
+// for every 10 pixels, move camera 1 degree.
+const DELTA_TO_DEGREES_RATIO: f64 = 0.1f64;
+#[derive(Debug, Default)]
+struct Mouse {
+    rot: Vec2,
+    delta: DVec2,
+    active: bool,
+}
+
 #[derive(Debug, Default)]
 struct Game {
     camera: Camera,
@@ -60,6 +69,7 @@ struct Game {
     velocity: Vec3,
     keys: Keys,
     scene: Scene,
+    mouse: Mouse,
 }
 
 impl Game {
@@ -79,13 +89,14 @@ impl Game {
                 }],
             },
             window_size: UVec2::new(width, height),
+            mouse: Mouse::default(),
             ..Default::default()
         }
     }
 }
 
 impl Game {
-    fn handle_key_event(&mut self, e: &KeyEvent) {
+    fn handle_key_event(&mut self, e: &KeyEvent, window: &Window) {
         match e.key_without_modifiers().as_ref() {
             Key::Named(NamedKey::Shift) => match e.state {
                 ElementState::Released => {
@@ -108,6 +119,24 @@ impl Game {
                     self.keys.held_keys.remove(c);
                 }
                 ElementState::Pressed => {
+                    match c {
+                        "f" => {
+                            dbg!("switching to active mode");
+                            if self.mouse.active {
+                                window.set_cursor_grab(CursorGrabMode::None).unwrap();
+                                window.set_cursor_visible(true);
+                            } else {
+                                window
+                                    .set_cursor_grab(CursorGrabMode::Confined)
+                                    .or_else(|_e| window.set_cursor_grab(CursorGrabMode::Locked))
+                                    .unwrap();
+                                window.set_cursor_visible(false);
+                            }
+                            self.mouse.active = !self.mouse.active;
+                        }
+                        "z" => {}
+                        _ => {}
+                    }
                     self.keys.held_keys.insert(c.into());
                 }
             },
@@ -115,6 +144,23 @@ impl Game {
         }
     }
     fn tick(&mut self) {
+        // update camera
+        {
+            {
+                let t = -DELTA_TO_DEGREES_RATIO * self.mouse.delta;
+                self.mouse.rot.x += t.x as f32;
+                self.mouse.rot.y += t.y as f32;
+            }
+            let model = glam::Mat3::from_rotation_y(self.mouse.rot.x.to_radians()) * glam::Mat3::from_rotation_x(self.mouse.rot.y.to_radians());
+            // let model = glam::Mat3::from_rotation_x(self.mouse.rot.y.to_radians()) * glam::Mat3::from_rotation_y(self.mouse.rot.x.to_radians());
+            self.camera.direction = model.mul_vec3(Vec3::new(0., 0., -1.));
+            self.camera.normal = model.mul_vec3(Vec3::new(0., 1., 0.));
+            self.camera.right = model.mul_vec3(Vec3::new(1., 0., 0.));
+
+            self.mouse.delta.x = 0.;
+            self.mouse.delta.y = 0.;
+        }
+
         // movement
         {
             if self.camera_mode == CameraMode::Minecraft {
@@ -172,9 +218,9 @@ fn main() -> Result<(), Error> {
     // setup
     let camera = Camera {
         eye: Vec3::new(0., 0., 0.),
-        direction: Vec3::new(0., 0., -1.),
-        normal: Vec3::new(0., 1., 0.),
-        right: Vec3::new(1., 0., 0.),
+        // direction: Vec3::new(0., 0., -1.),
+        // normal: Vec3::new(0., 1., 0.),
+        // right: Vec3::new(1., 0., 0.),
         focal_length: 1.,
         aspect_ratio: 16. / 9.,
         fov_y: 60.0,
@@ -515,6 +561,14 @@ fn main() -> Result<(), Error> {
     let mut modifiers = ModifiersState::default();
     event_loop.run(move |event, elwt| {
         match event {
+            Event::DeviceEvent { event, .. } => {
+                if let winit::event::DeviceEvent::MouseMotion { delta } = event {
+                    if game.mouse.active {
+                        game.mouse.delta.x += delta.0;
+                        game.mouse.delta.y += delta.1;
+                    }
+                }
+            }
             Event::WindowEvent { event, .. } => {
                 match event {
                     WindowEvent::ModifiersChanged(new) => {
@@ -528,15 +582,18 @@ fn main() -> Result<(), Error> {
                         // the program to gracefully handle redraws requested by the OS.
                     }
                     WindowEvent::KeyboardInput { event, .. } => {
-                        game.handle_key_event(&event);
+                        game.handle_key_event(&event, &window);
                         if let KeyEvent {
                             logical_key: key,
                             state: ElementState::Pressed,
                             ..
                         } = &event
                         {
-                            if let Key::Named(NamedKey::Escape) = key {
-                                elwt.exit();
+                            match key {
+                                Key::Named(NamedKey::Escape) => {
+                                    elwt.exit();
+                                }
+                                _ => {}
                             }
                         }
                     }
