@@ -130,13 +130,8 @@ struct Intersect {
     id: i32
 }
 
-fn world_get_intersect(ray: Ray) -> Intersect {
-    var t_range = RangeInclusive(0.001, f32(0xffffffffu));
+fn world_intersect_sphere(ray: Ray, intersect: ptr<function, Intersect>, t_range: ptr<function, RangeInclusive>) {
     var i: i32 = 0;
-
-    var intersect = Intersect();
-    intersect.t = 0.;
-    intersect.id = -1;
 
     loop {
         if i >= 2 { break; }
@@ -157,23 +152,37 @@ fn world_get_intersect(ray: Ray) -> Intersect {
 
         // For this specific ray, do not accept any hits farther away
         // from the current hit
-        if !is_in_range(t_range, t) {
+        if !is_in_range((*t_range), t) {
             // check with the positive t
             t = (-b + sqrt(det)) / (2. * a);
-            if !is_in_range(t_range, t) {
+            if !is_in_range((*t_range), t) {
                 continue;
             }
         }
 
-        intersect.t = t;
-        intersect.id = i;
+        (*intersect).t = t;
+        (*intersect).id = i;
 
-        t_range.max = min(t_range.max, t);
+        (*t_range).max = min((*t_range).max, t);
 
         continuing {
             i += 1;
         }
     }
+}
+
+fn world_intersect_triangle(ray: Ray) {
+
+}
+
+fn world_get_intersect(ray: Ray) -> Intersect {
+    var t_range = RangeInclusive(0.001, f32(0xffffffffu));
+
+    var intersect = Intersect();
+    intersect.t = 0.;
+    intersect.id = -1;
+
+    world_intersect_sphere(ray, &intersect, &t_range);
 
     return intersect;
 }
