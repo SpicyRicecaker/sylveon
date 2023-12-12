@@ -31,6 +31,22 @@ struct HitRecord {
     hit: bool
 }
 
+// https://www.pcg-random.org/
+fn pcg(n: u32) -> u32 {
+    var h = n * 747796405u + 2891336453u;
+    h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
+    return (h >> 22u) ^ h;
+}
+
+fn pcg2d(p: vec2u) -> vec2u {
+    var v = p * 1664525u + 1013904223u;
+    v.x += v.y * 1664525u; v.y += v.x * 1664525u;
+    v ^= v >> vec2u(16u);
+    v.x += v.y * 1664525u; v.y += v.x * 1664525u;
+    v ^= v >> vec2u(16u);
+    return v;
+}
+
 // http://www.jcgt.org/published/0009/03/02/
 fn pcg3d(p: vec3u) -> vec3u {
     var v = p * 1664525u + 1013904223u;
@@ -40,14 +56,16 @@ fn pcg3d(p: vec3u) -> vec3u {
     return v;
 }
 
-fn rand33(f: vec3f) -> vec3f { 
-    return vec3f(pcg3d(bitcast<vec3u>(f))) / f32(0xffffffffu); 
-}
+fn rand11(f: f32) -> f32 { return f32(pcg(bitcast<u32>(f))) / f32(0xffffffffu); }
+
+fn rand22(f: vec2f) -> vec2f { return vec2f(pcg2d(bitcast<vec2u>(f))) / f32(0xffffffffu); }
+
+fn rand33(f: vec3f) -> vec3f { return vec3f(pcg3d(bitcast<vec3u>(f))) / f32(0xffffffffu); }
 
 fn random_in_unit_sphere(seed: vec3f) -> vec3f {
     var out: vec3f;
-    while (true) {
-        let r = rand33(seed);
+    loop {
+        let r = 2. * rand33(seed) - vec3(1., 1., 1.);
         if (pow(length(r), 2.) < 1.) {
             out = r;
             break;
@@ -56,13 +74,19 @@ fn random_in_unit_sphere(seed: vec3f) -> vec3f {
     return out;
 }
 
+fn random_unit_vec(seed: vec3f) -> vec3f {
+    return normalize(random_in_unit_sphere(seed));
+}
+
 fn random_in_hemisphere(ray_incident: vec3f, normal: vec3f) -> vec3f {
-    var ray_reflected: vec3f;
-    if dot(ray_incident, normal) < 0. {
-        ray_reflected = -ray_incident;
-    } else {
-        ray_reflected = ray_incident;
-    }
+    // use ray incident as seed
+    var ray_reflected: vec3f = random_unit_vec(ray_incident);
+
+    // make sure reflection goes outwards.
+    if dot(ray_reflected, normal) < 0. {
+        ray_reflected = -ray_reflected;
+    } 
+
     return ray_reflected;
 }
 
@@ -88,12 +112,12 @@ fn is_in_range(r: RangeInclusive, n: f32) -> bool {
 var<private> spheres: array<Sphere, 2>;
 var<private> global_invocation_id: vec2<i32>;
 
-fn world_get_background_color() -> vec3f {
-    let blue = vec3f(135., 206., 235.) / 256.;
-    let white = vec3f(1., 1., 1.);
+fn world_get_background_color(ray: Ray) -> vec3f {
     // lerp based on y position
-    let color_ratio = f32(global_invocation_id.y) / f32(window_size.y);
-    let pixel_color = (1. - color_ratio) * blue + color_ratio * white;
+    let unit_direction: vec3f = normalize(ray.direction);
+    
+    let a: f32 = .5 * (unit_direction.y + 1.);
+    let pixel_color = (1. - a) * vec3f(1., 1., 1.) + a * vec3f(.5, .7, 1.);
     return pixel_color;
 }
 
@@ -107,7 +131,7 @@ struct Intersect {
 }
 
 fn world_get_intersect(ray: Ray) -> Intersect {
-    var t_range = RangeInclusive(0.001, 1000.);
+    var t_range = RangeInclusive(0.001, f32(0xffffffffu));
     var i: i32 = 0;
 
     var intersect = Intersect();
@@ -183,46 +207,49 @@ fn world_get_direct_light_at_point(p: vec3f) -> bool {
     return out;
 }
 
-fn world_get_color(ray: Ray) -> vec3f {
+fn world_get_color(ray_0: Ray) -> vec3f {
     // at bottom, completely white
     // at top, sky blue
 
     // we can't directly take this value for the pixel yet, since our path tracer is going to add that in for us
     var pixel_color = vec3f(0., 0., 0.);
+    let max_depth = 5;
 
-    let max_depth = 1;
-    var depth = 0;
-
+    var depth: i32 = 0;
+    var attenuation: f32 = 1.;
+    var ray: Ray = ray_0;
     loop {
         if (depth == max_depth) { break; }
 
         let intersect = world_get_intersect(ray);
         
-        // assume sky is just empty
+        // get color of sky based on ray vector
         if intersect.id < 0 {
-            pixel_color = world_get_background_color();
+            pixel_color = attenuation * world_get_background_color(ray);
             break;
         }
 
         let p = ray.origin + intersect.t * ray.direction;
 
-        if world_get_direct_light_at_point(p) {
-            let normal = world_get_normal(p, intersect.id);
+        // if world_get_direct_light_at_point(p) {
+        let normal = world_get_normal(p, intersect.id);
 
-            // make sure this is a color between 0 and 1 lol
-            pixel_color = .5 * (normal + vec3(1., 1., 1.));
-        }
+        // make sure this is a color between 0 and 1 lol
+        // pixel_color = .5 * (normal + vec3(1., 1., 1.));
+        // }
 
         // // get direct lighting
         // var direct: vec3f = world_get_direct_light_at_point(p);
 
-        // let new_direction = random_in_hemisphere(ray.direction, normal);
-
         // pixel_color = BRDF(ray.direction, new_direction) * ray.normal + direct;
 
-        // ray.origin = p;
-        // ray.direction = new_direction;
+        ray.origin = p;
+        ray.direction = random_in_hemisphere(ray.direction, normal) + normal;
+        if distance(ray.direction, vec3(0., 0., 0.)) < 0.05 {
+            ray.direction = normal;
+        }
 
+        attenuation *= .5;
         continuing {
             depth += 1;
         }
@@ -266,16 +293,35 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
 
     let pixel = tl_pixel + du * f32(GlobalInvocationID.x) + dv * f32(GlobalInvocationID.y);
 
+    let samples = 5;
+    // check for intersection of ray with thing
+    var i = 0;
+    var pixel_color: vec3f = vec3(0., 0., 0.);
     // ray!
     // make sure to center it at the current eye position
     var ray = Ray();
     // this works, but only when we don't rotate the camera at all
     ray.origin = cam.eye;
-    // by default should be skybox color
-    ray.direction = -cam.eye + pixel;
 
-    // check for intersection of ray with thing
-    var pixel_color = world_get_color(ray);
+    // jitter the pixel by +- du / 2, dv / 2
+    let du_len = length(du);
+    let half_du_len = .5 * du_len;
+    let dv_len = length(dv);
+    let half_dv_len = .5 * dv_len;
+
+    var seed_out: vec2f = rand22(pixel.xy);
+    loop {
+        if i == samples { break; }
+        // by default should be skybox color
+        seed_out = rand22(seed_out) * vec2f(du_len, dv_len) - vec2f(half_du_len, half_dv_len);
+        ray.direction = -cam.eye + pixel + vec3f(seed_out.x, seed_out.y, 0.);
+
+        pixel_color += world_get_color(ray);
+        continuing {
+            i += 1;
+        }
+    }
+    pixel_color /= f32(samples);
 
     textureStore(color_buffer, screen_pos, vec4<f32>(pixel_color, 1.));
 }

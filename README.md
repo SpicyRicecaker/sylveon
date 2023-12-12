@@ -38,3 +38,9 @@ https://www.scratchapixel.com/ Raytracing in One Weekend but explained different
 Really weird camera rotations if you do yaw before pitch, since you're rotating from the x-axis and y-axis. Instead, pitch first before yaw allows you to rotate from the start in both ways.  (https://forum.gamemaker.io/index.php?threads/first-person-camera-rotation.38106/post-235130)
 
 (https://eliemichel.github.io/LearnWebGPU/basic-3d-rendering/3d-meshes/transformation-matrices.html) interesting resource for WebGPU matrices. Basically call `transpose` right after passing in vectors into matrices and it makes much more sense.
+
+(https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4930030/) Definition of BSDF as a function which gives incident irradiance / scattered radiance.
+
+(https://developer.nvidia.com/blog/accelerated-ray-tracing-cuda/) iterative recursion
+
+(https://www.shadertoy.com/view/7tBXDh) Clutch rt in one weekend shader implementation.
