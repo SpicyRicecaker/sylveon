@@ -23,29 +23,7 @@ use winit::{
 };
 
 use log::{debug, error, info, log_enabled, Level};
-
-#[derive(Debug)]
-struct Sphere {
-    center: Vec3,
-    radius: f32,
-    material: Material,
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::NoUninit)]
-struct Material {
-    albedo: Vec3,
-    padding_1: f32,
-    ambient: Vec3,
-    padding_2: f32,
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::NoUninit)]
-struct Triangle {
-    points: [Vec4; 3],
-    material: Material,
-}
+use sylveon::*;
 
 #[repr(C)]
 #[derive(bytemuck::NoUninit, Debug, Clone, Copy, Default)]
@@ -392,20 +370,24 @@ fn main() -> Result<(), Error> {
         mapped_at_creation: false,
     });
 
-    // last value is just for padding lol
-    let triangles: Vec<Triangle> = vec![Triangle {
-        points: [
-            Vec4::new(0., 1., -1., 0.),
-            Vec4::new(1., 1., -1., 0.),
-            Vec4::new(0., 2., -1., 0.),
-        ],
-        material: Material {
-            albedo: Vec3::new(0.2, 0.8, 0.1),
-            padding_1: 0.,
-            ambient: Vec3::new(0., 0., 0.),
-            padding_2: 0.,
-        },
-    }];
+    let bush_system = OLSystem::new_bush_system();
+    let generations = 5;
+    let s = bush_system.generate(generations);
+    let triangles = OLSystem::turtle(s);
+    // // last value is just for padding lol
+    // let triangles: Vec<Triangle> = vec![Triangle {
+    //     points: [
+    //         Vec4::new(0., 1., -1., 0.),
+    //         Vec4::new(1., 1., -1., 0.),
+    //         Vec4::new(0., 2., -1., 0.),
+    //     ],
+    //     material: Material {
+    //         albedo: Vec3::new(0.2, 0.8, 0.1),
+    //         padding_1: 0.,
+    //         ambient: Vec3::new(0., 0., 0.),
+    //         padding_2: 0.,
+    //     },
+    // }];
 
     let triangle_buffer: Buffer = device.create_buffer_init(&BufferInitDescriptor {
         label: Some("triangle_buffer"),
@@ -604,23 +586,6 @@ fn main() -> Result<(), Error> {
             multiview: None,
         });
 
-    // let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-    //     label: None,
-    //     bind_group_layouts: &[],
-    //     push_constant_ranges: &[],
-    // });
-
-    // let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-    //     label: Some("MAIN PIPE"),
-    //     layout: None,
-    //     vertex: (),
-    //     primitive: (),
-    //     depth_stencil: (),
-    //     multisample: (),
-    //     fragment: (),
-    //     multiview: (),
-    // });
-
     let mut modifiers = ModifiersState::default();
     event_loop.run(move |event, elwt| {
         match event {
@@ -702,8 +667,8 @@ fn main() -> Result<(), Error> {
                         // TODO: how do we dispatch more than 1 ray per pixel (and randomly too)
                         // second, how do we update hit records for a sphere in the compute shader?
                         ray_tracing_compute_pass.dispatch_workgroups(
-                            game.window_size.x,
-                            game.window_size.y,
+                            game.window_size.x / 8,
+                            game.window_size.y / 8,
                             1,
                         );
                         // i think drop auto calls compute pass end

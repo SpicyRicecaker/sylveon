@@ -12,7 +12,7 @@ Random GPU algorithms (https://gist.github.com/munrocket/236ed5ba7e409b8bdf1ff6e
 
 [Chris Biscardi](https://www.youtube.com/watch?v=vblsZgBcgyw) gave the suggestion for me to use [Renderdoc](https://renderdoc.org/). Turns out that the color information is stored in  `R8G8B8A8_UNORM` format while it is in the storage buffer. This storage buffer image looks exactly like the one in WebGPU. However, when the texture gets read by the fragment shader and returned, each color is then converted into the `B8G8R8A8_SRGB` format. [This Excellent Post](https://community.khronos.org/t/noob-difference-between-unorm-and-srgb/106132/7) talks about color spaces, and what the screen expects.
 
-(https://www.shadertoy.com/view/tl23Rm) Shadertoy shader primititve
+(https://www.shadertoy.com/view/tl23Rm) Shadertoy shader primititve (https://reindernijhoff.net/2019/06/ray-tracing-primitives/)
 
 (https://iquilezles.org/articles/simplepathtracing/) articesl on gpu pathtracing
 

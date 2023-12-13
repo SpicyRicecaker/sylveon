@@ -338,7 +338,7 @@ fn world_get_color(ray_0: Ray) -> vec3f {
 }
 
 // number of pixels handled by this function
-@compute @workgroup_size(1,1,1)
+@compute @workgroup_size(8,8,1)
 // globalinvocationid: coordinate of current pixel
 fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
     let screen_pos: vec2<i32> = vec2(i32(GlobalInvocationID.x), i32(GlobalInvocationID.y));
