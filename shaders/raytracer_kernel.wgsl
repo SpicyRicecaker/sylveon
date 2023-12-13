@@ -191,7 +191,10 @@ fn world_intersect_triangle(ray: Ray, hit_record: ptr<function, HitRecord>, t_ra
         let b = triangle_points[i+1].xyz;
         let c = triangle_points[i+2].xyz;
 
-        let n = cross(-a + b, -a + c);
+        let u = -a + b;
+        let v = -a + c;
+
+        let n = cross(u, v);
 
         let d_dot_n = dot(ray.direction, n);
 
@@ -206,13 +209,29 @@ fn world_intersect_triangle(ray: Ray, hit_record: ptr<function, HitRecord>, t_ra
             continue;
         }
 
+        // point of intersection
+        let p = ray.origin + ray.direction * t;
+        
+        // create a new coordinate system to check if p is within the bounds of the triangle
+        // https://raytracing.github.io/books/RayTracingTheNextWeek.html#quadrilaterals/orientingpointsontheplane 
+        // for more details
+        let p_small = -a + p;
+        let w = n / dot(n, n);
+
+        let alpha = dot(w, cross(u, p_small));
+        let beta = dot(w, cross(v, p_small));
+
+        // for a triangle, alpha and beta must both be above or equal to zero and sum to <= 1
+        if !(alpha >= 0. && beta >= 0. && alpha + beta <= 1.) {
+            continue;
+        }
+
         (*t_range).max = min((*t_range).max, t);
 
         (*hit_record).t = t;
-        (*hit_record).p = ray.origin + ray.direction * t;
+        (*hit_record).p = p;
         (*hit_record).normal = n;
         (*hit_record).hit = true;
-        // (*hit_record.material) 
 
         continuing {
             i += 4;
