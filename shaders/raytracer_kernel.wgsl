@@ -124,7 +124,7 @@ fn is_in_range(r: RangeInclusive, n: f32) -> bool {
     return r.min < n && n < r.max;
 }
 
-var<private> spheres: array<Sphere, 2>;
+var<private> spheres: array<Sphere, 4>;
 var<private> global_invocation_id: vec2<i32>;
 
 fn world_get_background_color(ray: Ray) -> vec3f {
@@ -140,7 +140,7 @@ fn world_intersect_sphere(ray: Ray, hit_record: ptr<function, HitRecord>, t_rang
     var i: i32 = 0;
 
     loop {
-        if i >= 2 { break; }
+        if i >= 4 { break; }
 
         let c_o = -spheres[i].center + ray.origin;
         let a = dot(ray.direction, ray.direction);
@@ -346,7 +346,9 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
 
     // initialize spheres
     spheres[0] = Sphere(vec3(0., -100.5, -1.), 100., Material(vec3f(.5, .5, .5), 0., vec3f(0., 0., 0.), 0.));
-    spheres[1] = Sphere(vec3(0., 0., -5.), .5, Material(vec3f(.5, .5, .5), 0., vec3f(0., 0., 0.), 0.));
+    spheres[1] = Sphere(vec3(0., 0.01, -1.), .5, Material(vec3f(.5, .5, .5), 0., vec3f(0., 0., 0.), 0.));
+    spheres[2] = Sphere(vec3(0., -0.5, 1.), .5, Material(vec3f(.5, .5, .5), 0., vec3f(0., 0., 0.), 0.));
+    spheres[3] = Sphere(vec3(2., 0.5, 1.), .5, Material(vec3f(.5, .5, .5), 0., vec3f(0., 0., 0.), 0.));
     // sun
     sun.center = vec3(0., 100., 0.);
 

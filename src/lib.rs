@@ -92,9 +92,9 @@ impl OLSystem {
 
         let mut turtle = Turtle {
             position: Vec3::new(0., 0., 0.),
-            heading: Vec3::new(0., 0., -1.),
+            heading: Vec3::new(0., 1., 0.),
             left: Vec3::new(-1., 0., 0.),
-            up: Vec3::new(0., 1., 0.),
+            up: Vec3::new(0., 0., 1.),
             diameter: 1.,
             color_index: 0,
         };
@@ -119,7 +119,7 @@ impl OLSystem {
                 // push position
                 current_points.push(Vec4::new(
                     turtle.position.x,
-                    turtle.position.y,
+                    turtle.position.y - 1.,
                     turtle.position.z,
                     0.,
                 ));
