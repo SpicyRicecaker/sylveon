@@ -41,6 +41,11 @@ struct HitRecord {
     material: Material
 }
 
+// the following hashes were inspired by 
+// https://gist.github.com/munrocket/236ed5ba7e409b8bdf1ff6eca5dcdc39
+// keep in mind each function only generates random numbers in the range
+// of [0.,1.]
+
 // https://www.pcg-random.org/
 fn pcg(n: u32) -> u32 {
     var h = n * 747796405u + 2891336453u;
@@ -165,6 +170,7 @@ fn world_intersect_sphere(ray: Ray, hit_record: ptr<function, HitRecord>, t_rang
         (*hit_record).t = t;
         (*hit_record).normal = (-spheres[i].center + (*hit_record).p) / spheres[i].radius;
         (*hit_record).hit = true;
+        (*hit_record).material = spheres[i].material;
 
         (*t_range).max = min((*t_range).max, t);
 
@@ -234,6 +240,7 @@ fn world_intersect_triangle(ray: Ray, hit_record: ptr<function, HitRecord>, t_ra
         (*hit_record).p = p;
         (*hit_record).normal = n;
         (*hit_record).hit = true;
+        (*hit_record).material = triangles[i].material;
 
         continuing {
             i += 1;
@@ -288,8 +295,9 @@ fn world_get_color(ray_0: Ray) -> vec3f {
     let max_depth = 5;
 
     var depth: i32 = 0;
-    var attenuation: f32 = 1.;
+    var pooled_irradiance: vec3f = vec3(1., 1., 1.);
     var ray: Ray = ray_0;
+
     loop {
         if (depth == max_depth) { break; }
 
@@ -299,7 +307,7 @@ fn world_get_color(ray_0: Ray) -> vec3f {
         
         // get color of sky based on ray vector
         if !hit_record.hit {
-            pixel_color = attenuation * world_get_background_color(ray);
+            pixel_color = pooled_irradiance * world_get_background_color(ray);
             break;
         }
         // make sure this is a color between 0 and 1 lol
@@ -311,13 +319,16 @@ fn world_get_color(ray_0: Ray) -> vec3f {
 
         // pixel_color = BRDF(ray.direction, new_direction) * ray.normal + direct;
 
+        // update our irradiance
+        pooled_irradiance *= hit_record.material.albedo;
+
         ray.origin = hit_record.p;
         ray.direction = random_in_hemisphere(ray.direction, hit_record.normal) + hit_record.normal;
         if near_zero(ray.direction) {
             ray.direction = hit_record.normal;
         }
 
-        attenuation *= .5;
+        // attenuation *= .5;
         continuing {
             depth += 1;
         }
@@ -334,8 +345,8 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
     global_invocation_id = screen_pos;
 
     // initialize spheres
-    spheres[0] = Sphere(vec3(0., -100.5, -1.), 100., Material(vec3f(1., 1., 1.), 0., vec3f(0., 0., 0.), 0.));
-    spheres[1] = Sphere(vec3(0., 0., -1.), .5, Material(vec3f(1., 1., 1.), 0., vec3f(0., 0., 0.), 0.));
+    spheres[0] = Sphere(vec3(0., -100.5, -1.), 100., Material(vec3f(.5, .5, .5), 0., vec3f(0., 0., 0.), 0.));
+    spheres[1] = Sphere(vec3(0., 0., -1.), .5, Material(vec3f(.5, .5, .5), 0., vec3f(0., 0., 0.), 0.));
     // sun
     sun.center = vec3(0., 100., 0.);
 
