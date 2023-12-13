@@ -44,3 +44,5 @@ Really weird camera rotations if you do yaw before pitch, since you're rotating 
 (https://developer.nvidia.com/blog/accelerated-ray-tracing-cuda/) iterative recursion
 
 (https://www.shadertoy.com/view/7tBXDh) Clutch rt in one weekend shader implementation.
+
+(https://www.reddit.com/r/rust_gamedev/comments/rozcgr/wgsl_alignment_workarounds/)

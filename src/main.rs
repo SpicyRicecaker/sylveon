@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::Error;
 use glam::{DVec2, UVec2, Vec2, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
-use wgpu::*;
+use wgpu::{*, util::{DeviceExt, BufferInitDescriptor}};
 use winit::{
     dpi::PhysicalSize,
     event::{ElementState, Event, KeyEvent, WindowEvent},
@@ -25,6 +25,20 @@ use log::{debug, error, info, log_enabled, Level};
 struct Sphere {
     center: Vec3,
     radius: f32,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::NoUninit)]
+struct Material {
+    albedo: Vec3,
+    ambient: u32
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::NoUninit)]
+struct Triangle {
+    points: Vec3,
+    material: Material
 }
 
 #[repr(C)]
@@ -151,7 +165,8 @@ impl Game {
                 self.mouse.rot.x += t.x as f32;
                 self.mouse.rot.y += t.y as f32;
             }
-            let model = glam::Mat3::from_rotation_y(self.mouse.rot.x.to_radians()) * glam::Mat3::from_rotation_x(self.mouse.rot.y.to_radians());
+            let model = glam::Mat3::from_rotation_y(self.mouse.rot.x.to_radians())
+                * glam::Mat3::from_rotation_x(self.mouse.rot.y.to_radians());
             // let model = glam::Mat3::from_rotation_x(self.mouse.rot.y.to_radians()) * glam::Mat3::from_rotation_y(self.mouse.rot.x.to_radians());
             self.camera.direction = model.mul_vec3(Vec3::new(0., 0., -1.));
             self.camera.normal = model.mul_vec3(Vec3::new(0., 1., 0.));
@@ -365,6 +380,19 @@ fn main() -> Result<(), Error> {
         mapped_at_creation: false,
     });
 
+    // last value is just for padding lol
+    let triangles: Vec<Vec4> = vec![
+        Vec4::new(0., 1., -1., 0.),
+        Vec4::new(1., 1., -1., 0.),
+        Vec4::new(0., 2., -1., 0.),
+    ];
+
+    let triangle_buffer: Buffer = device.create_buffer_init(&BufferInitDescriptor {
+        label: Some("triangle_buffer"),
+        contents: bytemuck::cast_slice(&triangles),
+        usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
+    });
+
     let color_buffer: Texture = device.create_texture(&TextureDescriptor {
         label: None,
         size: Extent3d {
@@ -385,6 +413,7 @@ fn main() -> Result<(), Error> {
     let color_buffer_view: TextureView = color_buffer.create_view(&TextureViewDescriptor {
         ..Default::default()
     });
+
     let sampler: Sampler = device.create_sampler(&SamplerDescriptor {
         label: Some("color buffer sampler"),
         address_mode_u: AddressMode::Repeat,
@@ -428,6 +457,16 @@ fn main() -> Result<(), Error> {
                     },
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
     // what resources the raytracing pipeline will be using (just color buffer)
@@ -446,6 +485,10 @@ fn main() -> Result<(), Error> {
             BindGroupEntry {
                 binding: 2,
                 resource: BindingResource::Buffer(window_uniform.as_entire_buffer_binding()),
+            },
+            BindGroupEntry {
+                binding: 3,
+                resource: BindingResource::Buffer(triangle_buffer.as_entire_buffer_binding()),
             },
         ],
     });

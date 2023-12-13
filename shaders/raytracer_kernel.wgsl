@@ -13,9 +13,10 @@ struct Camera {
 
 @group(0) @binding(1) var<uniform> cam: Camera;
 @group(0) @binding(2) var<uniform> window_size: vec2u;
+@group(0) @binding(3) var<storage, read> triangle_points: array<vec4f>;
 
 struct Material {
-    color: vec3f,
+    albedo: vec3f,
     ambient: vec3f,
 }
 
@@ -25,10 +26,11 @@ struct Sphere {
 }
 
 struct HitRecord {
-    p: vec3f,
     t: f32,
+    p: vec3f,
     normal: vec3f,
-    hit: bool
+    hit: bool,
+    material: Material
 }
 
 // https://www.pcg-random.org/
@@ -106,7 +108,7 @@ struct StackFrame {
 }
 
 fn is_in_range(r: RangeInclusive, n: f32) -> bool {
-    return r.min <= n && n <= r.max;
+    return r.min < n && n < r.max;
 }
 
 var<private> spheres: array<Sphere, 2>;
@@ -121,16 +123,12 @@ fn world_get_background_color(ray: Ray) -> vec3f {
     return pixel_color;
 }
 
-fn world_get_normal(p: vec3f, id: i32) -> vec3f {
-    return (-spheres[id].center + p) / spheres[id].radius;
-}
-
 struct Intersect {
     t: f32,
     id: i32
 }
 
-fn world_intersect_sphere(ray: Ray, intersect: ptr<function, Intersect>, t_range: ptr<function, RangeInclusive>) {
+fn world_intersect_sphere(ray: Ray, hit_record: ptr<function, HitRecord>, t_range: ptr<function, RangeInclusive>) {
     var i: i32 = 0;
 
     loop {
@@ -160,8 +158,10 @@ fn world_intersect_sphere(ray: Ray, intersect: ptr<function, Intersect>, t_range
             }
         }
 
-        (*intersect).t = t;
-        (*intersect).id = i;
+        (*hit_record).p = ray.origin + t * ray.direction;
+        (*hit_record).t = t;
+        (*hit_record).normal = (-spheres[i].center + (*hit_record).p) / spheres[i].radius;
+        (*hit_record).hit = true;
 
         (*t_range).max = min((*t_range).max, t);
 
@@ -171,20 +171,60 @@ fn world_intersect_sphere(ray: Ray, intersect: ptr<function, Intersect>, t_range
     }
 }
 
-fn world_intersect_triangle(ray: Ray) {
-
+fn near_zero(v: vec3f) -> bool {
+    return length(v) < 0.001;
 }
 
-fn world_get_intersect(ray: Ray) -> Intersect {
+fn num_triangle_points() -> i32 {
+    return i32(arrayLength(&triangle_points));
+}
+
+
+fn world_intersect_triangle(ray: Ray, hit_record: ptr<function, HitRecord>, t_range: ptr<function, RangeInclusive>) {
+    // first treat the triangle as a plane
+    var i = 0;
+    let num_triangle_points = num_triangle_points();
+    loop {
+        if i >= num_triangle_points { break; }
+
+        let a = triangle_points[i].xyz;
+        let b = triangle_points[i+1].xyz;
+        let c = triangle_points[i+2].xyz;
+
+        let n = cross(-a + b, -a + c);
+
+        let d_dot_n = dot(ray.direction, n);
+
+        // ray is parallel to plane
+        if abs(d_dot_n) < 0.001 {
+            continue;
+        }
+
+        let t = dot(a - ray.origin, n) / d_dot_n;
+
+        if !is_in_range((*t_range), t) {
+            continue;
+        }
+
+        (*t_range).max = min((*t_range).max, t);
+
+        (*hit_record).t = t;
+        (*hit_record).p = ray.origin + ray.direction * t;
+        (*hit_record).normal = n;
+        (*hit_record).hit = true;
+        // (*hit_record.material) 
+
+        continuing {
+            i += 4;
+        }
+    }
+}
+
+fn world_get_intersect(ray: Ray, hit_record: ptr<function, HitRecord>) {
     var t_range = RangeInclusive(0.001, f32(0xffffffffu));
 
-    var intersect = Intersect();
-    intersect.t = 0.;
-    intersect.id = -1;
-
-    world_intersect_sphere(ray, &intersect, &t_range);
-
-    return intersect;
+    world_intersect_sphere(ray, hit_record, &t_range);
+    world_intersect_triangle(ray, hit_record, &t_range);
 }
 
 struct Light {
@@ -199,10 +239,12 @@ fn world_get_direct_light_at_point(p: vec3f) -> bool {
     ray.origin = p;
     ray.direction = normalize(-p + sun.center);
 
-    let intersect = world_get_intersect(ray);
+    var hit_record: HitRecord;
+    hit_record.hit = false;
+    world_get_intersect(ray, &hit_record);
 
     var out = true;
-    if (intersect.id >= 0) {
+    if !hit_record.hit {
         // find the time it takes for sun's ray to reach point
         // let t_to_p = length(-p + sun.center) / length(ray.direction);
 
@@ -230,19 +272,15 @@ fn world_get_color(ray_0: Ray) -> vec3f {
     loop {
         if (depth == max_depth) { break; }
 
-        let intersect = world_get_intersect(ray);
+        var hit_record: HitRecord;
+        hit_record.hit = false;
+        world_get_intersect(ray, &hit_record);
         
         // get color of sky based on ray vector
-        if intersect.id < 0 {
+        if !hit_record.hit {
             pixel_color = attenuation * world_get_background_color(ray);
             break;
         }
-
-        let p = ray.origin + intersect.t * ray.direction;
-
-        // if world_get_direct_light_at_point(p) {
-        let normal = world_get_normal(p, intersect.id);
-
         // make sure this is a color between 0 and 1 lol
         // pixel_color = .5 * (normal + vec3(1., 1., 1.));
         // }
@@ -252,10 +290,10 @@ fn world_get_color(ray_0: Ray) -> vec3f {
 
         // pixel_color = BRDF(ray.direction, new_direction) * ray.normal + direct;
 
-        ray.origin = p;
-        ray.direction = random_in_hemisphere(ray.direction, normal) + normal;
-        if distance(ray.direction, vec3(0., 0., 0.)) < 0.05 {
-            ray.direction = normal;
+        ray.origin = hit_record.p;
+        ray.direction = random_in_hemisphere(ray.direction, hit_record.normal) + hit_record.normal;
+        if near_zero(ray.direction) {
+            ray.direction = hit_record.normal;
         }
 
         attenuation *= .5;
