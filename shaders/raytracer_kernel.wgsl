@@ -227,7 +227,7 @@ fn world_intersect_triangle(ray: Ray, hit_record: ptr<function, HitRecord>, t_ra
         let w = n / dot(n, n);
 
         let alpha = dot(w, cross(u, p_small));
-        let beta = dot(w, cross(v, p_small));
+        let beta = dot(w, cross(p_small, v));
 
         // for a triangle, alpha and beta must both be above or equal to zero and sum to <= 1
         if !(alpha >= 0. && beta >= 0. && alpha + beta <= 1.) {
@@ -346,7 +346,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
 
     // initialize spheres
     spheres[0] = Sphere(vec3(0., -100.5, -1.), 100., Material(vec3f(.5, .5, .5), 0., vec3f(0., 0., 0.), 0.));
-    spheres[1] = Sphere(vec3(0., 0., -1.), .5, Material(vec3f(.5, .5, .5), 0., vec3f(0., 0., 0.), 0.));
+    spheres[1] = Sphere(vec3(0., 0., -5.), .5, Material(vec3f(.5, .5, .5), 0., vec3f(0., 0., 0.), 0.));
     // sun
     sun.center = vec3(0., 100., 0.);
 
