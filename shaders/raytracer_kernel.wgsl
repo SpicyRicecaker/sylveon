@@ -11,19 +11,27 @@ struct Camera {
     dummy1: f32
 }
 
-@group(0) @binding(1) var<uniform> cam: Camera;
-@group(0) @binding(2) var<uniform> window_size: vec2u;
-@group(0) @binding(3) var<storage, read> triangle_points: array<vec4f>;
-
 struct Material {
     albedo: vec3f,
+    padding_1: f32,
     ambient: vec3f,
+    padding_2: f32,
+}
+
+struct Triangle {
+    points: array<vec4f, 3>,
+    material: Material
 }
 
 struct Sphere {
     center: vec3f,
-    radius: f32
+    radius: f32,
+    material: Material,
 }
+
+@group(0) @binding(1) var<uniform> cam: Camera;
+@group(0) @binding(2) var<uniform> window_size: vec2u;
+@group(0) @binding(3) var<storage, read> triangles: array<Triangle>;
 
 struct HitRecord {
     t: f32,
@@ -123,11 +131,6 @@ fn world_get_background_color(ray: Ray) -> vec3f {
     return pixel_color;
 }
 
-struct Intersect {
-    t: f32,
-    id: i32
-}
-
 fn world_intersect_sphere(ray: Ray, hit_record: ptr<function, HitRecord>, t_range: ptr<function, RangeInclusive>) {
     var i: i32 = 0;
 
@@ -175,21 +178,20 @@ fn near_zero(v: vec3f) -> bool {
     return length(v) < 0.001;
 }
 
-fn num_triangle_points() -> i32 {
-    return i32(arrayLength(&triangle_points));
+fn num_triangles() -> i32 {
+    return i32(arrayLength(&triangles));
 }
-
 
 fn world_intersect_triangle(ray: Ray, hit_record: ptr<function, HitRecord>, t_range: ptr<function, RangeInclusive>) {
     // first treat the triangle as a plane
     var i = 0;
-    let num_triangle_points = num_triangle_points();
+    let num_triangles = num_triangles();
     loop {
-        if i >= num_triangle_points { break; }
+        if i >= num_triangles { break; }
 
-        let a = triangle_points[i].xyz;
-        let b = triangle_points[i+1].xyz;
-        let c = triangle_points[i+2].xyz;
+        let a = triangles[i].points[0].xyz;
+        let b = triangles[i].points[1].xyz;
+        let c = triangles[i].points[2].xyz;
 
         let u = -a + b;
         let v = -a + c;
@@ -199,7 +201,7 @@ fn world_intersect_triangle(ray: Ray, hit_record: ptr<function, HitRecord>, t_ra
         let d_dot_n = dot(ray.direction, n);
 
         // ray is parallel to plane
-        if abs(d_dot_n) < 0.001 {
+        if (abs(d_dot_n) < 0.001) {
             continue;
         }
 
@@ -234,7 +236,7 @@ fn world_intersect_triangle(ray: Ray, hit_record: ptr<function, HitRecord>, t_ra
         (*hit_record).hit = true;
 
         continuing {
-            i += 4;
+            i += 1;
         }
     }
 }
@@ -332,8 +334,8 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID: vec3<u32>) {
     global_invocation_id = screen_pos;
 
     // initialize spheres
-    spheres[0] = Sphere(vec3(0., -100.5, -1.), 100.);
-    spheres[1] = Sphere(vec3(0., 0., -1.), .5);
+    spheres[0] = Sphere(vec3(0., -100.5, -1.), 100., Material(vec3f(1., 1., 1.), 0., vec3f(0., 0., 0.), 0.));
+    spheres[1] = Sphere(vec3(0., 0., -1.), .5, Material(vec3f(1., 1., 1.), 0., vec3f(0., 0., 0.), 0.));
     // sun
     sun.center = vec3(0., 100., 0.);
 

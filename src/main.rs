@@ -8,7 +8,10 @@ use std::{
 
 use anyhow::Error;
 use glam::{DVec2, UVec2, Vec2, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
-use wgpu::{*, util::{DeviceExt, BufferInitDescriptor}};
+use wgpu::{
+    util::{BufferInitDescriptor, DeviceExt},
+    *,
+};
 use winit::{
     dpi::PhysicalSize,
     event::{ElementState, Event, KeyEvent, WindowEvent},
@@ -25,20 +28,23 @@ use log::{debug, error, info, log_enabled, Level};
 struct Sphere {
     center: Vec3,
     radius: f32,
+    material: Material,
 }
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::NoUninit)]
 struct Material {
     albedo: Vec3,
-    ambient: u32
+    padding_1: f32,
+    ambient: Vec3,
+    padding_2: f32,
 }
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::NoUninit)]
 struct Triangle {
-    points: Vec3,
-    material: Material
+    points: [Vec4; 3],
+    material: Material,
 }
 
 #[repr(C)]
@@ -100,6 +106,12 @@ impl Game {
                 objects: vec![Sphere {
                     center: Vec3::new(0., 0., -1.),
                     radius: 0.5,
+                    material: Material {
+                        albedo: Vec3::new(1., 1., 1.),
+                        padding_1: 0.,
+                        ambient: Vec3::new(0., 0., 0.),
+                        padding_2: 0.,
+                    },
                 }],
             },
             window_size: UVec2::new(width, height),
@@ -381,11 +393,19 @@ fn main() -> Result<(), Error> {
     });
 
     // last value is just for padding lol
-    let triangles: Vec<Vec4> = vec![
-        Vec4::new(0., 1., -1., 0.),
-        Vec4::new(1., 1., -1., 0.),
-        Vec4::new(0., 2., -1., 0.),
-    ];
+    let triangles: Vec<Triangle> = vec![Triangle {
+        points: [
+            Vec4::new(0., 1., -1., 0.),
+            Vec4::new(1., 1., -1., 0.),
+            Vec4::new(0., 2., -1., 0.),
+        ],
+        material: Material {
+            albedo: Vec3::new(0.2, 0.8, 0.1),
+            padding_1: 0.,
+            ambient: Vec3::new(0., 0., 0.),
+            padding_2: 0.,
+        },
+    }];
 
     let triangle_buffer: Buffer = device.create_buffer_init(&BufferInitDescriptor {
         label: Some("triangle_buffer"),
