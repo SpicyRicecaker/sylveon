@@ -377,7 +377,6 @@ fn main() -> Result<(), Error> {
     // let spheres = vec![];
 
     let (accel_struct, bounding_boxes) = AccelStruct::new(&triangles);
-    return Ok(());
     // dbg!(triangles.len());
     // // last value is just for padding lol
     // let triangles: Vec<Triangle> = vec![Triangle {
@@ -814,6 +813,11 @@ pub struct AccelStruct {
     tree: Vec<Primitive>,
 }
 
+struct WorklistElement {
+    depth: usize,
+    range: (usize, usize),
+}
+
 impl AccelStruct {
     // triangles is guaranteed to be nonzero
     fn get_bounding_box(triangles: &[Triangle]) -> BoundingBox {
@@ -850,12 +854,18 @@ impl AccelStruct {
     }
 
     pub fn new(triangles: &[Triangle]) -> (Self, Vec<BoundingBox>) {
-        let mut worklist: VecDeque<(usize, usize)> = VecDeque::new();
+        let mut worklist: VecDeque<WorklistElement> = VecDeque::new();
         // assume triangle size is greater than 1
-        worklist.push_back((0, triangles.len() - 1));
+        worklist.push_back(WorklistElement {
+            depth: 0,
+            range: (0, triangles.len() - 1),
+        });
 
         let mut bounding_boxes = vec![];
         let mut tree = vec![];
+
+        // calculate the maximum depth required
+        let max_depth = (triangles.len() as f64).log2().ceil() as usize;
 
         // _dbg
         // {
@@ -865,30 +875,57 @@ impl AccelStruct {
         //     ));
         // }
 
+        // build a binary tree, where all nodes not at the last layer make up a perfect binary tree,
+        // and nodes at the last layer are placed arbitrarily
+
         // range is inclusive
-        while let Some((p, q)) = worklist.pop_front() {
-            // split into two
+        // i know for sure this can be made more concise but this is what I came up with for now
+        while let Some(WorklistElement {
+            depth,
+            range: (p, q),
+        }) = worklist.pop_front()
+        {
             let n = q - p + 1;
-            match n {
-                1 => {
-                    tree.push(Primitive::from_triangle_ptr((p) as i32));
-                    // dummy node lol
-                    tree.push(Primitive::from_triangle_ptr((p) as i32));
+
+            match max_depth - depth {
+                0 => {
+                    // add two triangles instead
+                    assert_eq!(p, q);
+                    tree.push(Primitive::from_triangle_ptr(p as i32));
                 }
-                2 => {
-                    tree.push(Primitive::from_triangle_ptr((p) as i32));
-                    tree.push(Primitive::from_triangle_ptr((p + 1) as i32));
-                }
-                _ => {
+                diff => {
                     // insert the bounding boxes into the scene
                     bounding_boxes.push(AccelStruct::get_bounding_box(&triangles[p..=q]));
                     tree.push(Primitive::from_bounding_box_ptr(
                         (bounding_boxes.len() - 1) as i32,
                     ));
 
-                    let r = (q - p) / 2 + p;
-                    worklist.push_back((p, r));
-                    worklist.push_back((r + 1, q));
+                    // if we're at the last boundary box before leaves, and this
+                    // boundary box only has one child, then just clone the child to
+                    // make sure the binary tree is filled
+                    if diff == 1 && n == 1 {
+                        // problem: r + 1 is greater than q when p = 1, q = 1
+                        worklist.push_back(WorklistElement {
+                            depth: depth + 1,
+                            range: (p, q),
+                        });
+                        worklist.push_back(WorklistElement {
+                            depth: depth + 1,
+                            range: (p, q),
+                        });
+                    } else {
+                        let r = (q - p) / 2 + p;
+                        // the way that we built the tree, the last layer is made completely
+                        // of leaves
+                        worklist.push_back(WorklistElement {
+                            depth: depth + 1,
+                            range: (p, r),
+                        });
+                        worklist.push_back(WorklistElement {
+                            depth: depth + 1,
+                            range: (r + 1, q),
+                        });
+                    }
                 }
             }
         }
@@ -901,5 +938,33 @@ impl AccelStruct {
             .len());
 
         (Self { tree }, bounding_boxes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_accel_struct() {
+        let bush_system = OLSystem::new_bush_system();
+        let generations = 5;
+        let s = bush_system.generate(generations);
+        let triangles = OLSystem::turtle(s);
+
+        let (accel_struct, _bounding_boxes) = AccelStruct::new(&triangles);
+
+        let mut set = HashSet::new();
+
+        accel_struct
+            .tree
+            .into_iter()
+            .filter(|p| p.primitive_type == PrimitiveType::Triangle)
+            .for_each(|p| {
+                set.insert(p.pointer);
+            });
+
+        dbg!(set.len(), triangles.len());
+        assert!(set.len() == triangles.len());
     }
 }

@@ -236,17 +236,12 @@ fn world_intersect_accel_struct(ray: Ray, hit_record: ptr<function, HitRecord>, 
                 world_intersect_specific_bounding_box(primitive.pointer, ray, &_dbg_hit_record, t_range);
                 // if hit
                 if (_dbg_hit_record).hit {
-                    // add both children ptrs to be processed in the worklist (if they exist)
+                    // add both children ptrs to be processed in the worklist.
+                    // since our tree is a perfect binary tree, it is guaranteed for both to exist
                     // left child ptr always exists since complete binary tree
                     worklist[worklist_ptr + 1] = (accel_struct_ptr + 1) * 2 - 1;
-
-                    // right child ptr may or may not exist in compelte binary tree
-                    if (accel_struct_ptr + 1) * 2 < i32(arrayLength(&triangles)) {
-                        worklist[worklist_ptr + 2] = (accel_struct_ptr + 1) * 2;
-                        worklist_ptr += 2;
-                    } else {
-                        worklist_ptr += 1;
-                    }
+                    worklist[worklist_ptr + 2] = (accel_struct_ptr + 1) * 2;
+                    worklist_ptr += 2;
                 }
             }
             default: {
