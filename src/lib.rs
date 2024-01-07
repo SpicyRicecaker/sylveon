@@ -3,8 +3,11 @@
 
 use std::collections::HashMap;
 
-use glam::Vec4;
+use glam::{Vec4, Vec2};
 use glam::{Quat, Vec3};
+
+#[cfg(test)]
+mod wgsl_test;
 
 #[derive(Debug)]
 pub struct Sphere {
@@ -14,7 +17,7 @@ pub struct Sphere {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::NoUninit)]
+#[derive(Default, Debug, Clone, Copy, bytemuck::NoUninit)]
 pub struct Material {
     pub albedo: Vec3,
     pub padding_1: f32,
@@ -144,9 +147,9 @@ impl OLSystem {
                             // previous
                             current_points[i],
                             // this
-                            current_points[i+1]
+                            current_points[i + 1],
                         ],
-                        material
+                        material,
                     });
                 }
 

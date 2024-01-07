@@ -2,7 +2,7 @@ use futures::executor::{self, block_on};
 use hal::auxil::db;
 use std::{
     borrow::BorrowMut,
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     panic::AssertUnwindSafe,
 };
 
@@ -374,6 +374,11 @@ fn main() -> Result<(), Error> {
     let generations = 5;
     let s = bush_system.generate(generations);
     let triangles = OLSystem::turtle(s);
+    // let spheres = vec![];
+
+    let (accel_struct, bounding_boxes) = AccelStruct::new(&triangles);
+    return Ok(());
+    // dbg!(triangles.len());
     // // last value is just for padding lol
     // let triangles: Vec<Triangle> = vec![Triangle {
     //     points: [
@@ -388,6 +393,18 @@ fn main() -> Result<(), Error> {
     //         padding_2: 0.,
     //     },
     // }];
+
+    let accel_struct_buffer: Buffer = device.create_buffer_init(&BufferInitDescriptor {
+        label: Some("accel_structure_buffer"),
+        contents: bytemuck::cast_slice(&accel_struct.tree),
+        usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
+    });
+
+    let bounding_box_buffer: Buffer = device.create_buffer_init(&BufferInitDescriptor {
+        label: Some("bounding_box_buffer"),
+        contents: bytemuck::cast_slice(&bounding_boxes),
+        usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
+    });
 
     let triangle_buffer: Buffer = device.create_buffer_init(&BufferInitDescriptor {
         label: Some("triangle_buffer"),
@@ -469,6 +486,26 @@ fn main() -> Result<(), Error> {
                     },
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
     // what resources the raytracing pipeline will be using (just color buffer)
@@ -491,6 +528,14 @@ fn main() -> Result<(), Error> {
             BindGroupEntry {
                 binding: 3,
                 resource: BindingResource::Buffer(triangle_buffer.as_entire_buffer_binding()),
+            },
+            BindGroupEntry {
+                binding: 4,
+                resource: BindingResource::Buffer(bounding_box_buffer.as_entire_buffer_binding()),
+            },
+            BindGroupEntry {
+                binding: 5,
+                resource: BindingResource::Buffer(accel_struct_buffer.as_entire_buffer_binding()),
             },
         ],
     });
@@ -716,4 +761,145 @@ fn main() -> Result<(), Error> {
     })?;
 
     Ok(())
+}
+
+// u32
+#[repr(i32)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, bytemuck::NoUninit)]
+enum PrimitiveType {
+    #[default]
+    Triangle = 0,
+    Sphere = 1,
+    BoundingBox = 2,
+}
+
+// A vec4 is 32 bytes wide
+#[repr(C)]
+#[derive(Default, Debug, Clone, Copy, bytemuck::NoUninit)]
+struct Primitive {
+    // all
+    primitive_type: PrimitiveType,
+    pointer: i32,
+}
+
+impl Primitive {
+    fn from_triangle_ptr(pointer: i32) -> Self {
+        Self {
+            primitive_type: PrimitiveType::Triangle,
+            pointer,
+            ..Default::default()
+        }
+    }
+    fn from_bounding_box_ptr(pointer: i32) -> Self {
+        Self {
+            primitive_type: PrimitiveType::BoundingBox,
+            pointer,
+            ..Default::default()
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Default, Debug, Clone, Copy, bytemuck::NoUninit)]
+struct BoundingBox {
+    x_range: Vec2,
+    y_range: Vec2,
+    z_range: Vec2,
+    _1: Vec2,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct AccelStruct {
+    tree: Vec<Primitive>,
+}
+
+impl AccelStruct {
+    // triangles is guaranteed to be nonzero
+    fn get_bounding_box(triangles: &[Triangle]) -> BoundingBox {
+        let mut x_range = Vec2::new(triangles[0].points[0].x, triangles[0].points[0].x);
+        let mut y_range = Vec2::new(triangles[0].points[0].y, triangles[0].points[0].y);
+        let mut z_range = Vec2::new(triangles[0].points[0].z, triangles[0].points[0].z);
+
+        triangles
+            .iter()
+            .flat_map(|&t| t.points.into_iter())
+            .for_each(|t| {
+                x_range[0] = x_range[0].min(t.x);
+                x_range[1] = x_range[1].max(t.x);
+                y_range[0] = y_range[0].min(t.y);
+                y_range[1] = y_range[1].max(t.y);
+                z_range[0] = z_range[0].min(t.z);
+                z_range[1] = z_range[1].max(t.z);
+            });
+        BoundingBox {
+            x_range,
+            y_range,
+            z_range,
+            ..Default::default()
+        }
+    }
+
+    fn _dbg_bounding_box() -> BoundingBox {
+        BoundingBox {
+            x_range: Vec2::new(0., 0.1),
+            y_range: Vec2::new(0., 0.1),
+            z_range: Vec2::new(0., 0.1),
+            ..Default::default()
+        }
+    }
+
+    pub fn new(triangles: &[Triangle]) -> (Self, Vec<BoundingBox>) {
+        let mut worklist: VecDeque<(usize, usize)> = VecDeque::new();
+        // assume triangle size is greater than 1
+        worklist.push_back((0, triangles.len() - 1));
+
+        let mut bounding_boxes = vec![];
+        let mut tree = vec![];
+
+        // _dbg
+        // {
+        //     bounding_boxes.push(AccelStruct::_dbg_bounding_box());
+        //     nodes.push(Primitive::from_bounding_box_ptr(
+        //         (bounding_boxes.len() - 1) as i32,
+        //     ));
+        // }
+
+        // range is inclusive
+        while let Some((p, q)) = worklist.pop_front() {
+            // split into two
+            let n = q - p + 1;
+            match n {
+                1 => {
+                    tree.push(Primitive::from_triangle_ptr((p) as i32));
+                    // dummy node lol
+                    tree.push(Primitive::from_triangle_ptr((p) as i32));
+                }
+                2 => {
+                    tree.push(Primitive::from_triangle_ptr((p) as i32));
+                    tree.push(Primitive::from_triangle_ptr((p + 1) as i32));
+                }
+                _ => {
+                    // insert the bounding boxes into the scene
+                    bounding_boxes.push(AccelStruct::get_bounding_box(&triangles[p..=q]));
+                    tree.push(Primitive::from_bounding_box_ptr(
+                        (bounding_boxes.len() - 1) as i32,
+                    ));
+
+                    let r = (q - p) / 2 + p;
+                    worklist.push_back((p, r));
+                    worklist.push_back((r + 1, q));
+                }
+            }
+        }
+        dbg!(tree.len());
+        dbg!(triangles.len());
+
+        dbg!((0..tree.len())
+            .filter(|&i| { tree[i].primitive_type == PrimitiveType::BoundingBox })
+            .collect::<Vec<_>>()
+            .len());
+
+        (Self { tree }, bounding_boxes)
+    }
 }

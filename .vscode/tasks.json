@@ -7,8 +7,13 @@
 			"problemMatcher": [
 				"$rustc"
 			],
-			"args": ["--release"],
+			"args": [
+				"--release"
+			],
 			"label": "rust: cargo run"
 		}
-	]
+	],
+	"presentation": {
+		"showReuseMessage": false
+	}
 }

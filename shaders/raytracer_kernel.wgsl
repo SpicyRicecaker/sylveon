@@ -29,9 +29,29 @@ struct Sphere {
     material: Material,
 }
 
+struct BoundingBox {
+    x_range: vec2f,
+    y_range: vec2f,
+    z_range: vec2f,
+    _1: vec2f,
+}
+
+const Primitive_Triangle: i32 = 0;
+const Primitive_Sphere: i32 = 1;
+const Primitive_BoundingBox: i32 = 2;
+
+struct Primitive {
+    // all
+    primitive_type: i32,
+    pointer: i32,
+}
+
 @group(0) @binding(1) var<uniform> cam: Camera;
 @group(0) @binding(2) var<uniform> window_size: vec2u;
 @group(0) @binding(3) var<storage, read> triangles: array<Triangle>;
+@group(0) @binding(4) var<storage, read> bounding_boxes: array<BoundingBox>;
+// This one is a complete binary tree
+@group(0) @binding(5) var<storage, read> accel_struct: array<Primitive>;
 
 struct HitRecord {
     t: f32,
@@ -188,6 +208,160 @@ fn num_triangles() -> i32 {
     return i32(arrayLength(&triangles));
 }
 
+fn world_intersect_accel_struct(ray: Ray, hit_record: ptr<function, HitRecord>, t_range: ptr<function, RangeInclusive>) {
+    // start at the root of the acceleration structure
+    // holds ptrs to the acceleration structure
+    var worklist: array<i32, 100>;
+    worklist[0] = 0;
+    // worklist_i always points to the last element of the worklist
+    var worklist_ptr = 0;
+
+    // while the worklist isn't empty
+    while worklist_ptr >= 0 {
+        // pop worklist
+        let accel_struct_ptr = worklist[worklist_ptr];
+        let primitive = accel_struct[accel_struct_ptr];
+        worklist_ptr -= 1;
+
+        switch primitive.primitive_type {
+            // triangle
+            case Primitive_Triangle: {
+                world_intersect_specific_triangle(primitive.pointer, ray, hit_record, t_range);
+            }
+            // bounding box
+            case Primitive_BoundingBox: {
+                var _dbg_hit_record: HitRecord;
+                _dbg_hit_record.hit = false;
+                // intersect
+                world_intersect_specific_bounding_box(primitive.pointer, ray, &_dbg_hit_record, t_range);
+                // if hit
+                if (_dbg_hit_record).hit {
+                    // add both children ptrs to be processed in the worklist (if they exist)
+                    // left child ptr always exists since complete binary tree
+                    worklist[worklist_ptr + 1] = (accel_struct_ptr + 1) * 2 - 1;
+
+                    // right child ptr may or may not exist in compelte binary tree
+                    if (accel_struct_ptr + 1) * 2 < i32(arrayLength(&triangles)) {
+                        worklist[worklist_ptr + 2] = (accel_struct_ptr + 1) * 2;
+                        worklist_ptr += 2;
+                    } else {
+                        worklist_ptr += 1;
+                    }
+                }
+            }
+            default: {
+                // don't care
+            }
+        }
+    }
+}
+
+// assume intervals must be in order,
+// or gives invalid results
+fn overlap_2(a: vec2f, b: vec2f) -> bool {
+    return a[0] <= b[1] && b[0] <= a[1];
+    // return max(a[0], b[0]) <= min(a[1], b[1]);
+}
+
+fn overlap_3(a: vec2f, b: vec2f, c: vec2f) -> bool {
+    return max(a[0], b[0]) <= c[1]
+        && max(a[0], c[0]) <= b[1]
+        && max(b[0], c[0]) <= a[1];
+    // return max(max(a[0], b[0]), c[0]) <= min(min(a[1], b[1]), c[1]);
+}
+
+// will always intersect, unless ray is parallel
+fn world_intersect_specific_bounding_box(i: i32, ray: Ray, hit_record: ptr<function, HitRecord>, t_range: ptr<function, RangeInclusive>) {
+    // can swap lowest or just run arithmetic calculations twice, not sure which
+    // one is faster 
+    let tx_0 = min((bounding_boxes[i].x_range[0] - ray.origin.x) / ray.direction.x, (bounding_boxes[i].x_range[1] - ray.origin.x) / ray.direction.x);
+    let tx_1 = max((bounding_boxes[i].x_range[0] - ray.origin.x) / ray.direction.x, (bounding_boxes[i].x_range[1] - ray.origin.x) / ray.direction.x);
+
+    var ty_0 = min((bounding_boxes[i].y_range[0] - ray.origin.y) / ray.direction.y, (bounding_boxes[i].y_range[1] - ray.origin.y) / ray.direction.y);
+    var ty_1 = max((bounding_boxes[i].y_range[0] - ray.origin.y) / ray.direction.y, (bounding_boxes[i].y_range[1] - ray.origin.y) / ray.direction.y);
+
+    var tz_0 = min((bounding_boxes[i].z_range[0] - ray.origin.z) / ray.direction.z, (bounding_boxes[i].z_range[1] - ray.origin.z) / ray.direction.z);
+    var tz_1 = max((bounding_boxes[i].z_range[0] - ray.origin.z) / ray.direction.z, (bounding_boxes[i].z_range[1] - ray.origin.z) / ray.direction.z);
+
+    // if we hit the cube
+    if overlap_3(vec2f(tx_0, tx_1), vec2f(ty_0, ty_1), vec2f(tz_0, tz_1)) {
+        // useful for making a cube struct later
+        // get the smallest t value within the t range
+        // var t_vals: array<f32, 6>;
+        // t_vals[0] = tx_0;
+        // t_vals[1] = tx_1;
+        // t_vals[2] = ty_0;
+        // t_vals[3] = ty_1;
+        // t_vals[4] = tz_0;
+        // t_vals[5] = tz_1;
+
+        // var t_range = *t_range;
+
+        // for (var i: i32 = 0; i < 6; i++) {
+        //     if is_in_range(t_range, t_vals[i]) {
+        //         //update t_range
+        //         t_range.max = t_vals[i];
+        //     } 
+        // }
+
+        // (*hit_record).t = t_range.max;
+        // (*hit_record).p = ray.origin + ray.direction * t_range.max;
+        // (*hit_record).normal = -ray.direction;
+        (*hit_record).hit = true;
+        // DEBUG FOR NOW JUST USE SPHERE
+        // (*hit_record).material = spheres[0].material;
+    }
+}
+
+fn world_intersect_specific_triangle(i: i32, ray: Ray, hit_record: ptr<function, HitRecord>, t_range: ptr<function, RangeInclusive>) {
+    let a = triangles[i].points[0].xyz;
+    let b = triangles[i].points[1].xyz;
+    let c = triangles[i].points[2].xyz;
+
+    let u = -a + b;
+    let v = -a + c;
+
+    let n = cross(u, v);
+
+    let d_dot_n = dot(ray.direction, n);
+
+    // ray is parallel to plane
+    if (abs(d_dot_n) < 0.001) {
+        return;
+    }
+
+    let t = dot(a - ray.origin, n) / d_dot_n;
+
+    if !is_in_range((*t_range), t) {
+        return;
+    }
+
+    // point of intersection
+    let p = ray.origin + ray.direction * t;
+    
+    // create a new coordinate system to check if p is within the bounds of the triangle
+    // https://raytracing.github.io/books/RayTracingTheNextWeek.html#quadrilaterals/orientingpointsontheplane 
+    // for more details
+    let p_small = -a + p;
+    let w = n / dot(n, n);
+
+    let alpha = dot(w, cross(u, p_small));
+    let beta = dot(w, cross(p_small, v));
+
+    // for a triangle, alpha and beta must both be above or equal to zero and sum to <= 1
+    if !(alpha >= 0. && beta >= 0. && alpha + beta <= 1.) {
+        return;
+    }
+
+    (*t_range).max = min((*t_range).max, t);
+
+    (*hit_record).t = t;
+    (*hit_record).p = p;
+    (*hit_record).normal = n;
+    (*hit_record).hit = true;
+    (*hit_record).material = triangles[i].material;
+}
+
 fn world_intersect_triangle(ray: Ray, hit_record: ptr<function, HitRecord>, t_range: ptr<function, RangeInclusive>) {
     // first treat the triangle as a plane
     var i = 0;
@@ -252,7 +426,7 @@ fn world_get_intersect(ray: Ray, hit_record: ptr<function, HitRecord>) {
     var t_range = RangeInclusive(0.001, f32(0xffffffffu));
 
     world_intersect_sphere(ray, hit_record, &t_range);
-    world_intersect_triangle(ray, hit_record, &t_range);
+    world_intersect_accel_struct(ray, hit_record, &t_range);
 }
 
 struct Light {
