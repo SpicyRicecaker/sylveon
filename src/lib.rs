@@ -1,13 +1,18 @@
 // a context-free OL-system consists of a set of nonterminal symbols, a start symbol, and a set of rules corresponding to each nonterminal symbol.
 // there's also a set of defined terminal symbols
 
-use std::collections::HashMap;
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, VecDeque},
+};
 
-use glam::{Vec4, Vec2};
 use glam::{Quat, Vec3};
+use glam::{Vec2, Vec4};
+use rand::{thread_rng, Rng};
 
 #[cfg(test)]
 mod wgsl_test;
+pub mod rasterizer;
 
 #[derive(Debug)]
 pub struct Sphere {
@@ -247,4 +252,263 @@ fn rotate_3_around_axis(axis: Vec3, v1: &mut Vec3, v2: &mut Vec3, v3: &mut Vec3,
 fn rotate_around_axis(v: Vec3, axis: Vec3, delta: f32) -> Vec3 {
     let q = Quat::from_axis_angle(axis, delta);
     q.mul_vec3(v)
+}
+
+fn aabb_triangle(triangle: &Triangle) -> BoundingBox {
+    AccelStruct::get_bounding_box(&[*triangle])
+}
+
+// true if in the proper order, i.e. a is less than or equal to b
+pub fn compare_aabb_by_axis(a: BoundingBox, b: BoundingBox, axis: usize) -> Ordering {
+    if let Some(ordering) =
+        center_of_bounding_box(a)[axis].partial_cmp(&center_of_bounding_box(b)[axis])
+    {
+        ordering
+    } else {
+        Ordering::Equal
+    }
+}
+
+#[repr(C)]
+#[derive(Default, Debug, Clone, Copy, bytemuck::NoUninit)]
+pub struct BoundingBox {
+    pub x_range: Vec2,
+    pub y_range: Vec2,
+    pub z_range: Vec2,
+    pub _1: Vec2,
+}
+
+// assume that there isn't a 0 0 range
+fn center_of_bounding_box(bb: BoundingBox) -> Vec3 {
+    Vec3::new(
+        (bb.x_range[1] + bb.x_range[0]) / 2.,
+        (bb.y_range[1] + bb.y_range[0]) / 2.,
+        (bb.z_range[1] + bb.z_range[0]) / 2.,
+    )
+}
+
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct AccelStruct {
+    pub tree: Vec<Primitive>,
+}
+
+pub struct WorklistElement {
+    pub depth: usize,
+    pub range: (usize, usize),
+}
+
+impl AccelStruct {
+    // triangles is guaranteed to be nonzero
+    fn get_bounding_box(triangles: &[Triangle]) -> BoundingBox {
+        let mut x_range = Vec2::new(triangles[0].points[0].x, triangles[0].points[0].x);
+        let mut y_range = Vec2::new(triangles[0].points[0].y, triangles[0].points[0].y);
+        let mut z_range = Vec2::new(triangles[0].points[0].z, triangles[0].points[0].z);
+
+        triangles
+            .iter()
+            .flat_map(|&t| t.points.into_iter())
+            .for_each(|t| {
+                x_range[0] = x_range[0].min(t.x);
+                x_range[1] = x_range[1].max(t.x);
+                y_range[0] = y_range[0].min(t.y);
+                y_range[1] = y_range[1].max(t.y);
+                z_range[0] = z_range[0].min(t.z);
+                z_range[1] = z_range[1].max(t.z);
+            });
+        BoundingBox {
+            x_range,
+            y_range,
+            z_range,
+            ..Default::default()
+        }
+    }
+
+    fn _dbg_bounding_box() -> BoundingBox {
+        BoundingBox {
+            x_range: Vec2::new(0., 0.1),
+            y_range: Vec2::new(0., 0.1),
+            z_range: Vec2::new(0., 0.1),
+            ..Default::default()
+        }
+    }
+
+    pub fn new(triangles: &[Triangle]) -> (Self, Vec<BoundingBox>) {
+        let mut worklist: VecDeque<WorklistElement> = VecDeque::new();
+        // assume triangle size is greater than 1
+        worklist.push_back(WorklistElement {
+            depth: 0,
+            range: (0, triangles.len() - 1),
+        });
+
+        let mut triangle_indices = vec![];
+        for i in 0..triangles.len() {
+            triangle_indices.push(i);
+        }
+
+        let mut bounding_boxes = vec![];
+        let mut tree = vec![];
+
+        // calculate the maximum depth required
+        let max_depth = (triangles.len() as f64).log2().ceil() as usize;
+
+        // _dbg
+        // {
+        //     bounding_boxes.push(AccelStruct::_dbg_bounding_box());
+        //     nodes.push(Primitive::from_bounding_box_ptr(
+        //         (bounding_boxes.len() - 1) as i32,
+        //     ));
+        // }
+
+        // build a binary tree, where all nodes not at the last layer make up a perfect binary tree,
+        // and nodes at the last layer are placed arbitrarily
+
+        let mut rng = thread_rng();
+
+        // range is inclusive
+        // i know for sure this can be made more concise but this is what I came up with for now
+        while let Some(WorklistElement {
+            depth,
+            range: (p, q),
+        }) = worklist.pop_front()
+        {
+            let n = q - p + 1;
+
+            match max_depth - depth {
+                0 => {
+                    // add two triangles instead
+                    assert_eq!(p, q);
+                    tree.push(Primitive::from_triangle_ptr(triangle_indices[p] as i32));
+                }
+                diff => {
+                    // insert the bounding boxes into the scene
+                    bounding_boxes.push(AccelStruct::get_bounding_box(
+                        &triangle_indices[p..=q]
+                            .iter()
+                            .map(|&i| triangles[i])
+                            .collect::<Vec<_>>(),
+                    ));
+
+                    tree.push(Primitive::from_bounding_box_ptr(
+                        (bounding_boxes.len() - 1) as i32,
+                    ));
+
+                    // if we're at the last boundary box before leaves, and this
+                    // boundary box only has one child, then just clone the child to
+                    // make sure the binary tree is filled
+                    if diff == 1 && n == 1 {
+                        // problem: r + 1 is greater than q when p = 1, q = 1
+                        worklist.push_back(WorklistElement {
+                            depth: depth + 1,
+                            range: (p, q),
+                        });
+                        worklist.push_back(WorklistElement {
+                            depth: depth + 1,
+                            range: (p, q),
+                        });
+                    } else {
+                        // sort triangle indices by a random axis.
+                        // actually, don't sort for now, since for some reason
+                        // not sorting gives better performance
+
+                        // triangle_indices[p..=q].sort_by(|a, b| {
+                        //     compare_aabb_by_axis(
+                        //         aabb_triangle(&triangles[*a]),
+                        //         aabb_triangle(&triangles[*b]),
+                        //         rng.gen_range(0..3),
+                        //     )
+                        // });
+
+                        let r = (q - p) / 2 + p;
+                        // the way that we built the tree, the last layer is made completely
+                        // of leaves
+                        worklist.push_back(WorklistElement {
+                            depth: depth + 1,
+                            range: (p, r),
+                        });
+                        worklist.push_back(WorklistElement {
+                            depth: depth + 1,
+                            range: (r + 1, q),
+                        });
+                    }
+                }
+            }
+        }
+
+        dbg!(tree.len());
+        dbg!(triangles.len());
+
+        dbg!((0..tree.len())
+            .filter(|&i| { tree[i].primitive_type == PrimitiveType::BoundingBox })
+            .collect::<Vec<_>>()
+            .len());
+
+        (Self { tree }, bounding_boxes)
+    }
+}
+
+// u32
+#[repr(i32)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, bytemuck::NoUninit)]
+pub enum PrimitiveType {
+    #[default]
+    Triangle = 0,
+    Sphere = 1,
+    BoundingBox = 2,
+}
+
+// A vec4 is 32 bytes wide
+#[repr(C)]
+#[derive(Default, Debug, Clone, Copy, bytemuck::NoUninit)]
+pub struct Primitive {
+    // all
+    pub primitive_type: PrimitiveType,
+    pub pointer: i32,
+}
+
+impl Primitive {
+    fn from_triangle_ptr(pointer: i32) -> Self {
+        Self {
+            primitive_type: PrimitiveType::Triangle,
+            pointer,
+            ..Default::default()
+        }
+    }
+    fn from_bounding_box_ptr(pointer: i32) -> Self {
+        Self {
+            primitive_type: PrimitiveType::BoundingBox,
+            pointer,
+            ..Default::default()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::*;
+
+    #[test]
+    fn test_build_accel_struct() {
+        let bush_system = OLSystem::new_bush_system();
+        let generations = 5;
+        let s = bush_system.generate(generations);
+        let triangles = OLSystem::turtle(s);
+
+        let (accel_struct, _bounding_boxes) = AccelStruct::new(&triangles);
+
+        let mut set = HashSet::new();
+
+        accel_struct
+            .tree
+            .into_iter()
+            .filter(|p| p.primitive_type == PrimitiveType::Triangle)
+            .for_each(|p| {
+                set.insert(p.pointer);
+            });
+
+        dbg!(set.len(), triangles.len());
+        assert!(set.len() == triangles.len());
+    }
 }

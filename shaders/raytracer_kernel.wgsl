@@ -233,7 +233,7 @@ fn world_intersect_accel_struct(ray: Ray, hit_record: ptr<function, HitRecord>, 
                 var _dbg_hit_record: HitRecord;
                 _dbg_hit_record.hit = false;
                 // intersect
-                world_intersect_specific_bounding_box(primitive.pointer, ray, &_dbg_hit_record, t_range);
+                world_intersect_specific_(primitive.pointer, ray, &_dbg_hit_record, t_range);
                 // if hit
                 if (_dbg_hit_record).hit {
                     // add both children ptrs to be processed in the worklist.
@@ -266,7 +266,7 @@ fn overlap_3(a: vec2f, b: vec2f, c: vec2f) -> bool {
 }
 
 // will always intersect, unless ray is parallel
-fn world_intersect_specific_bounding_box(i: i32, ray: Ray, hit_record: ptr<function, HitRecord>, t_range: ptr<function, RangeInclusive>) {
+fn world_intersect_specific_(i: i32, ray: Ray, hit_record: ptr<function, HitRecord>, t_range: ptr<function, RangeInclusive>) {
     // can swap lowest or just run arithmetic calculations twice, not sure which
     // one is faster 
     let tx_0 = min((bounding_boxes[i].x_range[0] - ray.origin.x) / ray.direction.x, (bounding_boxes[i].x_range[1] - ray.origin.x) / ray.direction.x);

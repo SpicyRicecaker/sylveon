@@ -23,7 +23,7 @@ use winit::{
 };
 
 use log::{debug, error, info, log_enabled, Level};
-use sylveon::*;
+use sylveon::{rasterizer::to_triangle_coords, *};
 
 #[repr(C)]
 #[derive(bytemuck::NoUninit, Debug, Clone, Copy, Default)]
@@ -344,8 +344,14 @@ fn main() -> Result<(), Error> {
             .unwrap(),
     );
 
+    let rasterizer_shader = std::fs::read_to_string("shaders/rasterizer_shader.wgsl").unwrap();
     let screen_shader = std::fs::read_to_string("shaders/screen_shader.wgsl").unwrap();
     let raytracer_kernel = std::fs::read_to_string("shaders/raytracer_kernel.wgsl").unwrap();
+
+    let rasterizer_shader = device.create_shader_module(ShaderModuleDescriptor {
+        label: Some("rasterizer shader"),
+        source: ShaderSource::Wgsl(rasterizer_shader.into()),
+    });
     // create raytracing shader
     let screen_shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("screen shader"),
@@ -377,6 +383,12 @@ fn main() -> Result<(), Error> {
     // let spheres = vec![];
 
     let (accel_struct, bounding_boxes) = AccelStruct::new(&triangles);
+
+    let cubes = bounding_boxes
+        .clone()
+        .into_iter()
+        .flat_map(to_triangle_coords)
+        .collect::<Vec<_>>();
     // dbg!(triangles.len());
     // // last value is just for padding lol
     // let triangles: Vec<Triangle> = vec![Triangle {
@@ -392,6 +404,23 @@ fn main() -> Result<(), Error> {
     //         padding_2: 0.,
     //     },
     // }];
+
+    // init buffers
+    let cubes_buffer: Buffer = device.create_buffer_init(&BufferInitDescriptor {
+        label: Some("bounding box buffer"),
+        contents: bytemuck::cast_slice(&cubes),
+        usage: BufferUsages::VERTEX,
+    });
+
+    let cubes_buffer_layout = VertexBufferLayout {
+        array_stride: std::mem::size_of::<Vec3>() as wgpu::BufferAddress,
+        step_mode: VertexStepMode::Vertex,
+        attributes: &[wgpu::VertexAttribute {
+            format: VertexFormat::Float32x3,
+            offset: 0,
+            shader_location: 0,
+        }],
+    };
 
     let accel_struct_buffer: Buffer = device.create_buffer_init(&BufferInitDescriptor {
         label: Some("accel_structure_buffer"),
@@ -441,6 +470,8 @@ fn main() -> Result<(), Error> {
         mipmap_filter: FilterMode::Nearest,
         ..Default::default()
     });
+
+    // init raytracing pipeline
     let ray_tracing_bind_group_layout =
         device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("raytracing bind group"),
@@ -538,11 +569,13 @@ fn main() -> Result<(), Error> {
             },
         ],
     });
+
     let ray_tracing_pipeline_layout: PipelineLayout =
         device.create_pipeline_layout(&PipelineLayoutDescriptor {
             bind_group_layouts: &[&ray_tracing_bind_group_layout],
             ..Default::default()
         });
+
     let ray_tracing_pipeline: ComputePipeline =
         device.create_compute_pipeline(&ComputePipelineDescriptor {
             label: Some("raytracing compute pipeline"),
@@ -551,7 +584,101 @@ fn main() -> Result<(), Error> {
             entry_point: "main",
         });
 
-    // hi
+    // init rasterizer pipeline
+    let rasterizer_shader_bind_group_layout =
+        device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("rasterizer shader bind group"),
+            entries: &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // BindGroupLayoutEntry {
+                //     binding: 0,
+                //     visibility: ShaderStages::VERTEX,
+                //     ty: BindingType::Sampler(SamplerBindingType::NonFiltering),
+                //     count: None,
+                // },
+                // BindGroupLayoutEntry {
+                //     binding: 1,
+                //     visibility: ShaderStages::FRAGMENT,
+                //     ty: BindingType::Texture {
+                //         sample_type: TextureSampleType::Float { filterable: false },
+                //         view_dimension: TextureViewDimension::D2,
+                //         multisampled: false,
+                //     },
+                //     count: None,
+                // },
+            ],
+        });
+    let rasterizer_shader_bind_group: BindGroup = device.create_bind_group(&BindGroupDescriptor {
+        label: None,
+        layout: &rasterizer_shader_bind_group_layout,
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::Buffer(cam_uniform.as_entire_buffer_binding()),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: BindingResource::Buffer(window_uniform.as_entire_buffer_binding()),
+            },
+        ],
+    });
+    let rasterizer_shader_pipeline_layout: PipelineLayout =
+        device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            bind_group_layouts: &[&rasterizer_shader_bind_group_layout],
+            ..Default::default()
+        });
+    let rasterizer_shader_pipeline: RenderPipeline =
+        device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("rasterizer shader pipeline"),
+            layout: Some(&rasterizer_shader_pipeline_layout),
+            vertex: VertexState {
+                module: &rasterizer_shader,
+                entry_point: "vert_main",
+                buffers: &[cubes_buffer_layout],
+            },
+            primitive: PrimitiveState {
+                topology: PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: MultisampleState::default(),
+            fragment: Some(FragmentState {
+                module: &rasterizer_shader,
+                entry_point: "frag_main",
+                targets: &[Some(ColorTargetState {
+                    format: TextureFormat::Bgra8UnormSrgb,
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
+            }),
+            multiview: None,
+        });
+
+    // init screen_shader pipeline
     let screen_shader_bind_group_layout =
         device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("screen shader bind group"),
@@ -589,13 +716,11 @@ fn main() -> Result<(), Error> {
             },
         ],
     });
-
     let screen_shader_pipeline_layout: PipelineLayout =
         device.create_pipeline_layout(&PipelineLayoutDescriptor {
             bind_group_layouts: &[&screen_shader_bind_group_layout],
             ..Default::default()
         });
-
     let screen_shader_pipeline: RenderPipeline =
         device.create_render_pipeline(&RenderPipelineDescriptor {
             label: Some("screen shader render pipeline"),
@@ -719,7 +844,7 @@ fn main() -> Result<(), Error> {
                     }
                     {
                         let render_pass_descriptor = RenderPassDescriptor {
-                            label: None,
+                            label: Some("render pass"),
                             color_attachments: &[Some(RenderPassColorAttachment {
                                 view: &surface_texture_view,
                                 resolve_target: None,
@@ -743,6 +868,34 @@ fn main() -> Result<(), Error> {
                         screen_shader_render_pass.set_pipeline(&screen_shader_pipeline);
                         screen_shader_render_pass.draw(0..6, 0..1);
                     }
+                    {
+                        let render_pass_descriptor = RenderPassDescriptor {
+                            label: Some("rasterization pass"),
+                            color_attachments: &[Some(RenderPassColorAttachment {
+                                view: &surface_texture_view,
+                                resolve_target: None,
+                                ops: Operations {
+                                    load: LoadOp::Load,
+                                    store: StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: None,
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                        };
+
+                        let mut rasterizer_shader_render_pass =
+                            command_encoder.begin_render_pass(&render_pass_descriptor);
+                        rasterizer_shader_render_pass.set_bind_group(
+                            0,
+                            &rasterizer_shader_bind_group,
+                            &[],
+                        );
+                        rasterizer_shader_render_pass.set_pipeline(&rasterizer_shader_pipeline);
+
+                        rasterizer_shader_render_pass.set_vertex_buffer(0, cubes_buffer.slice(..));
+                        rasterizer_shader_render_pass.draw(0..(cubes.len() as u32), 0..1);
+                    }
                 }
 
                 queue.submit(std::iter::once(command_encoder.finish()));
@@ -760,211 +913,4 @@ fn main() -> Result<(), Error> {
     })?;
 
     Ok(())
-}
-
-// u32
-#[repr(i32)]
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, bytemuck::NoUninit)]
-enum PrimitiveType {
-    #[default]
-    Triangle = 0,
-    Sphere = 1,
-    BoundingBox = 2,
-}
-
-// A vec4 is 32 bytes wide
-#[repr(C)]
-#[derive(Default, Debug, Clone, Copy, bytemuck::NoUninit)]
-struct Primitive {
-    // all
-    primitive_type: PrimitiveType,
-    pointer: i32,
-}
-
-impl Primitive {
-    fn from_triangle_ptr(pointer: i32) -> Self {
-        Self {
-            primitive_type: PrimitiveType::Triangle,
-            pointer,
-            ..Default::default()
-        }
-    }
-    fn from_bounding_box_ptr(pointer: i32) -> Self {
-        Self {
-            primitive_type: PrimitiveType::BoundingBox,
-            pointer,
-            ..Default::default()
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Default, Debug, Clone, Copy, bytemuck::NoUninit)]
-struct BoundingBox {
-    x_range: Vec2,
-    y_range: Vec2,
-    z_range: Vec2,
-    _1: Vec2,
-}
-
-#[repr(C)]
-#[derive(Debug, Clone)]
-pub struct AccelStruct {
-    tree: Vec<Primitive>,
-}
-
-struct WorklistElement {
-    depth: usize,
-    range: (usize, usize),
-}
-
-impl AccelStruct {
-    // triangles is guaranteed to be nonzero
-    fn get_bounding_box(triangles: &[Triangle]) -> BoundingBox {
-        let mut x_range = Vec2::new(triangles[0].points[0].x, triangles[0].points[0].x);
-        let mut y_range = Vec2::new(triangles[0].points[0].y, triangles[0].points[0].y);
-        let mut z_range = Vec2::new(triangles[0].points[0].z, triangles[0].points[0].z);
-
-        triangles
-            .iter()
-            .flat_map(|&t| t.points.into_iter())
-            .for_each(|t| {
-                x_range[0] = x_range[0].min(t.x);
-                x_range[1] = x_range[1].max(t.x);
-                y_range[0] = y_range[0].min(t.y);
-                y_range[1] = y_range[1].max(t.y);
-                z_range[0] = z_range[0].min(t.z);
-                z_range[1] = z_range[1].max(t.z);
-            });
-        BoundingBox {
-            x_range,
-            y_range,
-            z_range,
-            ..Default::default()
-        }
-    }
-
-    fn _dbg_bounding_box() -> BoundingBox {
-        BoundingBox {
-            x_range: Vec2::new(0., 0.1),
-            y_range: Vec2::new(0., 0.1),
-            z_range: Vec2::new(0., 0.1),
-            ..Default::default()
-        }
-    }
-
-    pub fn new(triangles: &[Triangle]) -> (Self, Vec<BoundingBox>) {
-        let mut worklist: VecDeque<WorklistElement> = VecDeque::new();
-        // assume triangle size is greater than 1
-        worklist.push_back(WorklistElement {
-            depth: 0,
-            range: (0, triangles.len() - 1),
-        });
-
-        let mut bounding_boxes = vec![];
-        let mut tree = vec![];
-
-        // calculate the maximum depth required
-        let max_depth = (triangles.len() as f64).log2().ceil() as usize;
-
-        // _dbg
-        // {
-        //     bounding_boxes.push(AccelStruct::_dbg_bounding_box());
-        //     nodes.push(Primitive::from_bounding_box_ptr(
-        //         (bounding_boxes.len() - 1) as i32,
-        //     ));
-        // }
-
-        // build a binary tree, where all nodes not at the last layer make up a perfect binary tree,
-        // and nodes at the last layer are placed arbitrarily
-
-        // range is inclusive
-        // i know for sure this can be made more concise but this is what I came up with for now
-        while let Some(WorklistElement {
-            depth,
-            range: (p, q),
-        }) = worklist.pop_front()
-        {
-            let n = q - p + 1;
-
-            match max_depth - depth {
-                0 => {
-                    // add two triangles instead
-                    assert_eq!(p, q);
-                    tree.push(Primitive::from_triangle_ptr(p as i32));
-                }
-                diff => {
-                    // insert the bounding boxes into the scene
-                    bounding_boxes.push(AccelStruct::get_bounding_box(&triangles[p..=q]));
-                    tree.push(Primitive::from_bounding_box_ptr(
-                        (bounding_boxes.len() - 1) as i32,
-                    ));
-
-                    // if we're at the last boundary box before leaves, and this
-                    // boundary box only has one child, then just clone the child to
-                    // make sure the binary tree is filled
-                    if diff == 1 && n == 1 {
-                        // problem: r + 1 is greater than q when p = 1, q = 1
-                        worklist.push_back(WorklistElement {
-                            depth: depth + 1,
-                            range: (p, q),
-                        });
-                        worklist.push_back(WorklistElement {
-                            depth: depth + 1,
-                            range: (p, q),
-                        });
-                    } else {
-                        let r = (q - p) / 2 + p;
-                        // the way that we built the tree, the last layer is made completely
-                        // of leaves
-                        worklist.push_back(WorklistElement {
-                            depth: depth + 1,
-                            range: (p, r),
-                        });
-                        worklist.push_back(WorklistElement {
-                            depth: depth + 1,
-                            range: (r + 1, q),
-                        });
-                    }
-                }
-            }
-        }
-        dbg!(tree.len());
-        dbg!(triangles.len());
-
-        dbg!((0..tree.len())
-            .filter(|&i| { tree[i].primitive_type == PrimitiveType::BoundingBox })
-            .collect::<Vec<_>>()
-            .len());
-
-        (Self { tree }, bounding_boxes)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_build_accel_struct() {
-        let bush_system = OLSystem::new_bush_system();
-        let generations = 5;
-        let s = bush_system.generate(generations);
-        let triangles = OLSystem::turtle(s);
-
-        let (accel_struct, _bounding_boxes) = AccelStruct::new(&triangles);
-
-        let mut set = HashSet::new();
-
-        accel_struct
-            .tree
-            .into_iter()
-            .filter(|p| p.primitive_type == PrimitiveType::Triangle)
-            .for_each(|p| {
-                set.insert(p.pointer);
-            });
-
-        dbg!(set.len(), triangles.len());
-        assert!(set.len() == triangles.len());
-    }
 }
