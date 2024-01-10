@@ -6,7 +6,7 @@ use std::{
     collections::{HashMap, VecDeque},
 };
 
-use glam::{Quat, Vec3};
+use glam::{Quat, Vec3, Mat4};
 use glam::{Vec2, Vec4};
 use rand::{thread_rng, Rng};
 
@@ -510,5 +510,31 @@ mod tests {
 
         dbg!(set.len(), triangles.len());
         assert!(set.len() == triangles.len());
+    }
+}
+
+#[repr(C)]
+#[derive(bytemuck::NoUninit, Debug, Clone, Copy, Default)]
+
+pub struct Camera {
+    pub eye: Vec3,
+    pub focal_length: f32,
+    pub direction: Vec3,
+    pub aspect_ratio: f32,
+    pub up: Vec3,
+    pub fov_y: f32,
+    pub right: Vec3,
+    pub _1: f32,
+}
+
+impl Camera {
+    pub fn projection_matrix(&self) -> Mat4 {
+        // projection
+        Mat4::perspective_rh_gl(self.fov_y.to_radians(), self.aspect_ratio, 0., 10000.)
+    }
+
+    pub fn view_matrix(&self) -> Mat4 {
+        // view matrix
+        Mat4::look_to_rh(self.eye, self.direction, self.up)
     }
 }

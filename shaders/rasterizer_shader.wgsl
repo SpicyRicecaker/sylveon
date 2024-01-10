@@ -1,5 +1,6 @@
-@group(0) @binding(0) var<uniform> cam: Camera;
-@group(0) @binding(1) var<uniform> window_size: vec2u;
+@group(0) @binding(0) var<uniform> projection: mat4x4f;
+@group(0) @binding(1) var<uniform> view: mat4x4f;
+@group(0) @binding(2) var<uniform> window_size: vec2u;
 
 struct Camera {
     eye: vec3f,
@@ -25,7 +26,7 @@ fn vert_main(vertex_input: VertexInput) -> VertexOutput {
     // build projection matrix
     // build view matrix
     var vertex_output: VertexOutput;
-    vertex_output.position = vec4f(vertex_input.coord, 1.);
+    vertex_output.position = projection * view * vec4f(vertex_input.coord, 1.);
     
     return vertex_output;
 }

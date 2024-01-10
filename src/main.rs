@@ -23,21 +23,7 @@ use winit::{
 };
 
 use log::{debug, error, info, log_enabled, Level};
-use sylveon::{rasterizer::to_triangle_coords, *};
-
-#[repr(C)]
-#[derive(bytemuck::NoUninit, Debug, Clone, Copy, Default)]
-
-struct Camera {
-    eye: Vec3,
-    focal_length: f32,
-    direction: Vec3,
-    aspect_ratio: f32,
-    normal: Vec3,
-    fov_y: f32,
-    right: Vec3,
-    _1: f32,
-}
+use sylveon::{rasterizer::{to_triangle_coords, test_triangle_coords}, *};
 
 #[derive(Debug, Default)]
 struct Keys {
@@ -159,7 +145,7 @@ impl Game {
                 * glam::Mat3::from_rotation_x(self.mouse.rot.y.to_radians());
             // let model = glam::Mat3::from_rotation_x(self.mouse.rot.y.to_radians()) * glam::Mat3::from_rotation_y(self.mouse.rot.x.to_radians());
             self.camera.direction = model.mul_vec3(Vec3::new(0., 0., -1.));
-            self.camera.normal = model.mul_vec3(Vec3::new(0., 1., 0.));
+            self.camera.up = model.mul_vec3(Vec3::new(0., 1., 0.));
             self.camera.right = model.mul_vec3(Vec3::new(1., 0., 0.));
 
             self.mouse.delta.x = 0.;
@@ -223,9 +209,9 @@ fn main() -> Result<(), Error> {
     // setup
     let camera = Camera {
         eye: Vec3::new(0., 0., 0.),
-        // direction: Vec3::new(0., 0., -1.),
-        // normal: Vec3::new(0., 1., 0.),
-        // right: Vec3::new(1., 0., 0.),
+        direction: Vec3::new(0., 0., -1.),
+        up: Vec3::new(0., 1., 0.),
+        right: Vec3::new(1., 0., 0.),
         focal_length: 1.,
         aspect_ratio: 16. / 9.,
         fov_y: 60.0,
@@ -406,6 +392,18 @@ fn main() -> Result<(), Error> {
     // }];
 
     // init buffers
+    let projection_mat_buffer: Buffer = device.create_buffer_init(&BufferInitDescriptor {
+        label: Some("projection_mat_buffer"),
+        contents: bytemuck::bytes_of(&game.camera.projection_matrix()),
+        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::MAP_WRITE,
+    });
+
+    let view_mat_buffer: Buffer = device.create_buffer_init(&BufferInitDescriptor {
+        label: Some("view_mat_buffer"),
+        contents: bytemuck::bytes_of(&game.camera.view_matrix()),
+        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::MAP_WRITE,
+    });
+
     let cubes_buffer: Buffer = device.create_buffer_init(&BufferInitDescriptor {
         label: Some("bounding box buffer"),
         contents: bytemuck::cast_slice(&cubes),
@@ -609,6 +607,16 @@ fn main() -> Result<(), Error> {
                     },
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
                 // BindGroupLayoutEntry {
                 //     binding: 0,
                 //     visibility: ShaderStages::VERTEX,
@@ -633,10 +641,14 @@ fn main() -> Result<(), Error> {
         entries: &[
             BindGroupEntry {
                 binding: 0,
-                resource: BindingResource::Buffer(cam_uniform.as_entire_buffer_binding()),
+                resource: BindingResource::Buffer(projection_mat_buffer.as_entire_buffer_binding()),
             },
             BindGroupEntry {
                 binding: 1,
+                resource: BindingResource::Buffer(view_mat_buffer.as_entire_buffer_binding()),
+            },
+            BindGroupEntry {
+                binding: 2,
                 resource: BindingResource::Buffer(window_uniform.as_entire_buffer_binding()),
             },
         ],
@@ -803,6 +815,16 @@ fn main() -> Result<(), Error> {
             }
             Event::AboutToWait => {
                 game.tick();
+
+                projection_mat_buffer.slice(..).map_async(MapMode::Write, |_| {});
+                device.poll(MaintainBase::Wait);
+                queue.write_buffer(&projection_mat_buffer, 0, bytemuck::bytes_of(&game.camera.projection_matrix()));
+                projection_mat_buffer.unmap();
+
+                view_mat_buffer.slice(..).map_async(MapMode::Write, |_| {});
+                device.poll(MaintainBase::Wait);
+                queue.write_buffer(&view_mat_buffer, 0, bytemuck::bytes_of(&game.camera.view_matrix()));
+                view_mat_buffer.unmap();
 
                 cam_uniform.slice(..).map_async(MapMode::Write, |_| {});
                 device.poll(MaintainBase::Wait);
