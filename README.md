@@ -1,3 +1,8 @@
+
+![Screenshot 2024-09-30 135821](https://github.com/user-attachments/assets/562dfbea-b0e6-4e42-b24a-94c357c8be1b)
+![Screenshot 2024-09-30 135801](https://github.com/user-attachments/assets/6c082a44-8f1e-4fe5-b4f8-e056e08a68ad)
+
+
 Get into gamedev WGPU raytracer (https://www.youtube.com/watch?v=Gv0EiQfDI7w)
 
 WGPU web documentation (really mention that this is much better than opengl) https://www.w3.org/TR/webgpu/#gpusampler
