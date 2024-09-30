@@ -330,9 +330,9 @@ fn main() -> Result<(), Error> {
             .unwrap(),
     );
 
-    let rasterizer_shader = std::fs::read_to_string("shaders/rasterizer_shader.wgsl").unwrap();
-    let screen_shader = std::fs::read_to_string("shaders/screen_shader.wgsl").unwrap();
-    let raytracer_kernel = std::fs::read_to_string("shaders/raytracer_kernel.wgsl").unwrap();
+    let rasterizer_shader = include_str!("../shaders/rasterizer_shader.wgsl");
+    let screen_shader = include_str!("../shaders/screen_shader.wgsl");
+    let raytracer_kernel = include_str!("../shaders/raytracer_kernel.wgsl");
 
     let rasterizer_shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("rasterizer shader"),
@@ -374,7 +374,9 @@ fn main() -> Result<(), Error> {
         .clone()
         .into_iter()
         .flat_map(to_triangle_coords)
+        .take(0)
         .collect::<Vec<_>>();
+
     // dbg!(triangles.len());
     // // last value is just for padding lol
     // let triangles: Vec<Triangle> = vec![Triangle {
